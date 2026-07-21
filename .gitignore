@@ -1,0 +1,154 @@
+# ===========================================
+# Audora — .gitignore
+# React + Electron + Python + FastAPI
+# ===========================================
+
+# ───────────────────────────────────────────
+# Python / FastAPI
+# ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# PyInstaller
+*.spec
+backend/dist/
+backend/build/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+backend/data/music.db
+
+# Logs
+*.log
+backend/logs/
+
+# ───────────────────────────────────────────
+# Node.js / React
+# ───────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Build output
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# ───────────────────────────────────────────
+# Electron
+# ───────────────────────────────────────────
+# Packaged app output
+out/
+release/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.msi
+
+# Electron Builder
+frontend/dist_electron/
+app/dist/
+
+# ───────────────────────────────────────────
+# OS
+# ───────────────────────────────────────────
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ───────────────────────────────────────────
+# IDEs & Editors
+# ───────────────────────────────────────────
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# JetBrains (PyCharm, WebStorm)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+Session.vim
+
+# ───────────────────────────────────────────
+# Audora — Project Specific
+# ───────────────────────────────────────────
+
+# Apple Music session data (sensitive — never commit)
+**/rootfs/data/
+wrapper/rootfs/data/
+
+# Downloaded music files
+downloads/
+MusicDownload/
+
+# Settings with personal paths
+backend/data/settings.json
+
+# Docker wrapper binary (large binary, downloaded separately)
+wrapper/wrapper
+wrapper/*.tar.gz
+wrapper/*.xz
