@@ -1,2 +1,2 @@
 # Audora
-Music downloader on your local device 
+Desktop application for downloading and managing high-quality music locally
