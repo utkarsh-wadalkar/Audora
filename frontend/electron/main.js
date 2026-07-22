@@ -9,6 +9,7 @@ const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    icon: path.join(__dirname, '../assets/icon.ico'),
     width: 1400,
     height: 900,
     minWidth: 1200,

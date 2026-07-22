@@ -38,6 +38,7 @@
   },
   "build": {
     "appId": "com.audora.app",
+    "icon": "assets/icon.ico",
     "productName": "Audora",
     "directories": {
       "output": "dist-electron"
