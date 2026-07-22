@@ -1,0 +1,11 @@
+# Core runtime dependencies (Audora.md Section 27).
+# Version floors chosen for Python 3.11–3.13 compatibility.
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.1
+docker>=7.1.0
+sqlalchemy>=2.0.31
+aiofiles>=23.2.1
+mutagen>=1.47.0
+python-dotenv>=1.0.1
+websockets>=12.0
+pydantic>=2.7.4

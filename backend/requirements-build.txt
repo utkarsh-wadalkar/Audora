@@ -1,0 +1,5 @@
+# Build- and test-only dependencies. Install separately:
+#   pip install -r requirements-build.txt
+# PyInstaller 6.10+ is required for Python 3.13.
+pyinstaller>=6.10.0
+pytest>=8.0.0

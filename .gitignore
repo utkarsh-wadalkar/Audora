@@ -152,3 +152,5 @@ backend/data/settings.json
 wrapper/wrapper
 wrapper/*.tar.gz
 wrapper/*.xz
+# My Files
+/notes 
