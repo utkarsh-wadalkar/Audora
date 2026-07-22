@@ -24,7 +24,7 @@ You will need:
 
 ## Step 1 — Download Audora
 
-1. Go to the [Releases page](https://github.com/yourusername/audora/releases)
+1. Go to the [Releases page](https://github.com/utkarsh-wadalkar/Audora/releases)
 2. Click the latest **`Audora-Setup.exe`** to download it
 3. Save it somewhere easy to find (like your Desktop)
 
