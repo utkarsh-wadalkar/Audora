@@ -25,8 +25,7 @@ env/
 .env/
 ENV/
 
-# PyInstaller
-*.spec
+# PyInstaller (keep backend.spec — it's source; ignore only its output)
 backend/dist/
 backend/build/
 
@@ -40,6 +39,7 @@ backend/build/
 *.sqlite
 *.sqlite3
 backend/data/music.db
+backend/data/audora.db
 
 # Logs
 *.log
@@ -80,8 +80,8 @@ release/
 *.snap
 *.msi
 
-# Electron Builder
-frontend/dist_electron/
+# Electron Builder (note: real output dir is "dist-electron" with a HYPHEN)
+frontend/dist-electron/
 app/dist/
 
 # ───────────────────────────────────────────

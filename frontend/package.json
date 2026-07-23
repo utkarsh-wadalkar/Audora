@@ -2,6 +2,8 @@
   "name": "audora",
   "version": "1.2.0",
   "description": "Desktop Music Downloader & Library Manager",
+  "author": "Utkarsh Wadalkar",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -36,29 +38,36 @@
     "vite": "^7.0.0",
     "wait-on": "^7.2.0"
   },
-  "build": {
-    "appId": "com.audora.app",
-    "icon": "assets/icon.ico",
-    "productName": "Audora",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "../backend/dist/backend.exe",
-        "to": "backend.exe"
-      }
-    ],
-    "win": {
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+"build": {
+  "appId": "com.audora.app",
+  "productName": "Audora",
+  "icon": "assets/audoralogo.ico",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "../backend/dist/backend.exe",
+      "to": "backend.exe"
     }
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "assets/audoralogo.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "license": "LICENSE.txt",
+    "installerIcon": "assets/audoralogo.ico",
+    "uninstallerIcon": "assets/audoralogo.ico",
+    "installerHeaderIcon": "assets/audoralogo.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
   }
+}
 }
