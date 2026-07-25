@@ -51,7 +51,20 @@ def windows_to_docker_path(path: str) -> str:
 
 
 def redact_credentials(text: str) -> str:
-    """Remove ``-L email:password`` style secrets before logging."""
+    """Strip secrets from ``text`` before it is logged or shown to the user.
+
+    Used everywhere untrusted/credential-bearing strings can surface — log
+    lines, setup-step errors, the diagnostic bundle (QC_plan.md §8.2). Covers,
+    in order (most specific first so a later rule can't re-expose a match):
+
+    - ``-L user:pass`` / ``--login user:pass`` downloader auth args,
+    - ``password=…`` / ``password: …`` in any casing,
+    - bearer/auth ``token``/``secret``/``api_key``/``authorization`` values,
+    - bare ``user:pass@`` credentials embedded in a URL, and
+    - email addresses (Apple ID) anywhere in the string.
+
+    Returns the redacted string; ``None``/empty passes through unchanged.
+    """
     if not text:
         return text
     # -L user:pass  /  --login user:pass
@@ -60,12 +73,32 @@ def redact_credentials(text: str) -> str:
         r"\1 <redacted>",
         text,
     )
-    # password=... in any form
+    # password / token / secret / api_key / authorization = <value> (any casing).
     text = re.sub(
-        r"(password[=:]\s*)\S+",
+        r"(password|passwd|pwd|token|secret|api[_-]?key|auth(?:orization)?)"
+        r"(\s*[=:]\s*)\S+",
+        r"\1\2<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Bearer <token> in an Authorization header value.
+    text = re.sub(
+        r"(bearer\s+)\S+",
         r"\1<redacted>",
         text,
         flags=re.IGNORECASE,
+    )
+    # user:pass@host embedded in a URL (before the email rule strips the ':').
+    text = re.sub(
+        r"://[^/\s:@]+:[^/\s@]+@",
+        "://<redacted>@",
+        text,
+    )
+    # Email addresses (Apple ID) anywhere in the text.
+    text = re.sub(
+        r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
+        "<redacted-email>",
+        text,
     )
     return text
 
