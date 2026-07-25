@@ -116,15 +116,13 @@ You can change the download folder in **Settings** inside Audora.
 
 ## Playing Your Downloads
 
-Your files are `.m4a` (lossless ALAC). They play in:
-
+Your files are `.m4a` (lossless ALAC). They play in Audora itself:
+Play tracks directly inside Audora using the built-in player.
+But you can also use
 | Player | Where to get it |
 |--------|----------------|
 | **VLC** *(recommended)* | [videolan.org](https://www.videolan.org) |
 | **foobar2000** | [foobar2000.org](https://www.foobar2000.org) |
-| **MusicBee** | [getmusicbee.com](https://getmusicbee.com) |
-
-You can also play tracks directly inside Audora using the built-in player.
 
 ---
 
@@ -185,7 +183,7 @@ Lossless ALAC files are roughly **30–50 MB per track**. A typical album (12 tr
 Audora is built on top of:
 - [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 - [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
-            *A Big Thank's to zhaarey*(https://github.com/zhaarey)
+            *A Big Thank's to* [*zhaarey*](https://github.com/zhaarey)
 ---
 
-*Made with ♥ by Utkarsh-Wadalkar*(https://github.com/utkarsh-wadalkar)
+Made with 🎧 by [Utkarsh-Wadalkar](https://github.com/utkarsh-wadalkar)

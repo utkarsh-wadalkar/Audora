@@ -24,6 +24,7 @@ from download_manager import dl_mgr
 from library_manager import lib_mgr
 from queue_processor import queue_processor
 from setup_manager import setup_mgr
+from diagnostics import collect_diagnostics
 from models import DownloadHistory, QueueItem
 from schemas import (
     ApiResponse,
@@ -95,7 +96,69 @@ def auth_callback(event: dict) -> None:
     _broadcast_from_thread(auth_ws_manager, event)
 
 
+# =============================================================================
+# CANONICAL `/ws/setup` EVENT SCHEMA  (Workstream C — reference for E/frontend)
+# =============================================================================
+# `setup_callback` is registered on `setup_mgr.register_progress_callback` and
+# forwards every `setup_progress` event VERBATIM to all connected `/ws/setup`
+# clients. It never reshapes, drops, or synthesizes keys — the exact dict
+# emitted by `setup_manager.SetupManager._emit` is what the client receives.
+# There is NO fake/synthetic progress: `percent` and `progress` are driven by
+# real aggregated per-layer byte counts from the streamed Docker pull.
+#
+# Event shape (JSON object sent per `ws.send_json`):
+#
+#   {
+#     "type":    "setup_progress",   # constant discriminator; always this value
+#     "step":    <str>,              # step id — see STEP IDS below
+#     "status":  <str>,              # "pending" | "running" | "done" | "error"
+#     "message": <str>,              # plain-language narration for the UI
+#     "percent": <int>,              # OPTIONAL 0..100, present on streamed pull
+#                                    #   progress ticks (running); clamped 0..100
+#     "progress": {                  # OPTIONAL, present alongside `percent` on
+#       "current": <int>,            #   pull ticks — REAL aggregated byte counts
+#       "total":   <int>             #   across all layers (bytes, not MB)
+#     },
+#     "error": {                     # OPTIONAL, present ONLY on status=="error"
+#       "code":      <str>,          #   taxonomy code — see ERROR CODES below
+#       "transient": <bool>          #   True => was auto-retried before surfacing
+#     }
+#   }
+#
+# `percent`, `progress`, and `error` are ADDITIVE and may be absent; consumers
+# must treat missing keys as "not applicable" and never assume presence.
+#
+# ---------------------------------------------------------------------------
+# STEP IDS (`step`) — emitted by setup_manager in order:
+#   "pull_downloader"  Pull the ghcr.io apple-music-downloader image (streamed,
+#                      preflighted, auto-retried). Emits `percent`/`progress`.
+#   "build_wrapper"    Build (or detect already-built) the local wrapper image.
+#   "complete"         Terminal bookkeeping step; done => whole setup succeeded.
+#
+# STATUS (`status`) — mapped from setup_manager's internal StepState:
+#   "pending"  Step known but not started (StepState.PENDING).
+#   "running"  Step in progress (StepState.RUNNING). Pull ticks carry
+#              `percent` + `progress`. Re-emitted on each (auto/manual) retry.
+#   "done"     Step succeeded (StepState.SUCCESS). Terminal for that step.
+#   "error"    Step failed and was SURFACED to the user (StepState.FAILED) —
+#              i.e. transient auto-retries (if any) were already exhausted.
+#              ALWAYS carries `error.code` so the frontend can render exactly
+#              one recovery button (never a dead end).
+#
+# ERROR CODES (`error.code`) — full taxonomy from setup_manager.ErrorCode,
+# with transient (auto-retried) vs permanent (surfaces immediately):
+#   "docker_unresponsive"   TRANSIENT  Docker API unreachable despite "running".
+#   "dns_failure"           TRANSIENT  Cannot resolve the registry host.
+#   "registry_rate_limit"   TRANSIENT  HTTP 429 from ghcr.io.
+#   "registry_unavailable"  TRANSIENT  Registry 5xx / connection reset.
+#   "disk_full"             PERMANENT  Insufficient free disk (< required+buffer).
+#   "auth_denied"           PERMANENT  Auth / permission / access denied.
+#   "unknown"               PERMANENT  Unclassified — generic recovery path.
+# `error.transient` reflects this classification for the specific failure; a
+# surfaced transient error means its silent-retry budget was exhausted.
+# =============================================================================
 def setup_callback(event: dict) -> None:
+    # Forward the complete event dict unchanged to every `/ws/setup` client.
     _broadcast_from_thread(setup_ws_manager, event)
 
 
@@ -432,6 +495,19 @@ def setup_complete():
     return ApiResponse(success=True, data={"complete": True})
 
 
+# --- Diagnostics (QC_plan.md §8.2) ---
+@app.get("/setup/diagnostics", response_model=ApiResponse)
+def setup_diagnostics():
+    """One-click diagnostic bundle for a visibly-failed setup step.
+
+    Pure read (safe to re-call). Returns the structured fields plus a single
+    copyable ``report`` text block. Every string is redacted so no Apple ID,
+    password, or token can leak (QC_plan.md §8.2, §12). Never raises: absent
+    Docker/WSL degrade to "unavailable" so the report is never a dead end.
+    """
+    return ApiResponse(success=True, data=collect_diagnostics())
+
+
 # --- WebSockets ---
 @app.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
@@ -468,6 +544,11 @@ async def ws_auth(websocket: WebSocket):
 
 @app.websocket("/ws/setup")
 async def ws_setup(websocket: WebSocket):
+    # Streams first-run setup progress. Events are `setup_progress` dicts whose
+    # full JSON schema (type/step/status/message/percent/progress/error) is
+    # documented on `setup_callback` above — that is the canonical reference
+    # for Workstream E. Lifecycle mirrors `/ws/progress`/`/ws/auth`: graceful
+    # accept, read-loop to detect disconnect, unregister on drop (no crash).
     await setup_ws_manager.connect(websocket)
     try:
         while True:

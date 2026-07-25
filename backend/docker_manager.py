@@ -3,9 +3,11 @@
 All methods swallow ``DockerException`` and return safe defaults / log a
 user-friendly message so the API never 500s just because Docker is down.
 """
+import shutil
+import socket
 import subprocess
 import time
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 try:
     import docker
@@ -203,6 +205,101 @@ class DockerManager:
             client.images.get(name)
             return True
         except Exception:
+            return False
+
+    def pull_image_streaming(self, image: str, on_progress: Callable) -> bool:
+        """Pull ``image`` streaming per-layer progress events to ``on_progress``.
+
+        Uses the low-level SDK API (``client.api.pull(..., stream=True,
+        decode=True)``) so callers receive the same structured per-layer JSON
+        events the Docker CLI renders (``Downloading`` / ``Extracting`` /
+        ``Pull complete`` with ``progressDetail`` byte counters and layer
+        ``id``\\ s). ``on_progress`` is invoked for EVERY decoded event.
+
+        Idempotent: Docker's pull naturally resumes an already-partially-pulled
+        image and is a no-op ("Image is up to date" / "Already exists") for a
+        fully-pulled one — either way the stream completes and we return True.
+
+        Graceful degradation: if the docker lib is missing or the client is
+        None, log and return False rather than raising.
+        """
+        client = self.get_client()
+        if client is None:
+            logger.error(f"Cannot pull {image}: Docker not running")
+            return False
+        try:
+            logger.info(f"Streaming pull of image {image} ...")
+            # Low-level API yields decoded dict events, one per status update.
+            for event in client.api.pull(image, stream=True, decode=True):
+                if not isinstance(event, dict):
+                    # Defensive: skip anything that isn't a decoded event.
+                    continue
+                # Surface registry-side errors instead of silently "succeeding".
+                if event.get("error"):
+                    logger.error(f"Pull error for {image}: {event.get('error')}")
+                    # Still forward the event so callers can classify/branch.
+                    try:
+                        on_progress(event)
+                    except Exception as cb_err:
+                        logger.warning(f"on_progress callback failed: {cb_err}")
+                    return False
+                try:
+                    on_progress(event)
+                except Exception as cb_err:
+                    # A misbehaving callback must not abort the pull.
+                    logger.warning(f"on_progress callback failed: {cb_err}")
+            logger.info(f"Pulled {image} (streaming)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to stream-pull {image}: {e}")
+            return False
+
+    def check_disk_space(self, path: str, required_bytes: int) -> bool:
+        """Return True if ``path``'s filesystem has >= ``required_bytes`` free.
+
+        Degrades gracefully: on any unexpected error we return True and log it,
+        so a bug in this preflight check never blocks setup outright.
+        """
+        try:
+            usage = shutil.disk_usage(path)
+            ok = usage.free >= required_bytes
+            if not ok:
+                logger.warning(
+                    f"Low disk space at {path}: {usage.free} free, "
+                    f"{required_bytes} required"
+                )
+            return ok
+        except Exception as e:
+            logger.warning(f"check_disk_space({path}) failed, assuming OK: {e}")
+            return True
+
+    def check_dns(self, host: str) -> bool:
+        """Return True if ``host`` resolves via DNS within a short timeout."""
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(5.0)
+            socket.getaddrinfo(host, None)
+            return True
+        except Exception as e:
+            logger.warning(f"DNS resolution failed for {host}: {e}")
+            return False
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+
+    def is_docker_api_responsive(self) -> bool:
+        """Actually ping the Docker Engine API (not just a process check).
+
+        Returns False on any failure rather than raising.
+        """
+        client = self.get_client()
+        if client is None:
+            return False
+        try:
+            return bool(client.ping())
+        except Exception as e:
+            logger.warning(f"Docker API ping failed: {e}")
+            # Stale client — drop it so a later call reconnects.
+            self._client = None
             return False
 
 
