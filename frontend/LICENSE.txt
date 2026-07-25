@@ -1,0 +1,149 @@
+Audora Software License
+Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. DEFINITIONS
+
+   "Software" means the Audora application, including its compiled
+   executables, installer packages, associated assets, and documentation,
+   as distributed by the copyright owner in binary form.
+
+   "Source Code" means the human-readable form of the Software, including
+   but not limited to Python, TypeScript, JavaScript, and configuration
+   files that make up the Software's implementation.
+
+   "You" or "Your" means any individual or legal entity exercising rights
+   under this License.
+
+   "Distribution" means making the unmodified installer or executable of
+   the Software available to third parties, whether for free or for a fee.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2. PERMITTED USES
+
+   Subject to the terms of this License, You are permitted to:
+
+   (a) USE — Install and use the Software on any number of devices for
+       personal or internal purposes, without restriction.
+
+   (b) DISTRIBUTE — Share or redistribute the Software in its original,
+       unmodified binary form (installer or executable), provided that:
+         (i)  this License is included in full with every copy distributed;
+         (ii) all copyright notices and attributions remain intact and
+              unaltered; and
+         (iii) You do not charge a fee for the Software itself, though
+               reasonable media or distribution costs are permitted.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3. RESTRICTIONS
+
+   The following are expressly prohibited without prior written permission
+   from the copyright owner:
+
+   (a) REPRODUCTION — You may not reproduce, copy, duplicate, or clone the
+       Software's Source Code, in whole or in part, for any purpose
+       whatsoever, including for private or internal use.
+
+   (b) MODIFICATION — You may not modify, adapt, translate, port, or create
+       derivative works based on the Software or its Source Code.
+
+   (c) REVERSE ENGINEERING — You may not reverse engineer, decompile,
+       disassemble, or otherwise attempt to derive the Source Code of the
+       Software from its compiled form, except to the extent that applicable
+       law expressly prohibits this restriction.
+
+   (d) REBRANDING — You may not remove, alter, replace, or obscure any
+       copyright notices, trademarks, product names, logos, or other
+       proprietary markings within the Software.
+
+   (e) COMMERCIAL EXPLOITATION — You may not sell, sublicense, rent, lease,
+       or otherwise commercially exploit the Software itself as a standalone
+       product or service.
+
+   (f) INCORPORATION — You may not incorporate the Software or any portion
+       of its Source Code into another product, project, or software
+       application.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. OWNERSHIP AND INTELLECTUAL PROPERTY
+
+   The Software is licensed, not sold. Utkarsh Wadalkar retains all right,
+   title, and interest in and to the Software, including all intellectual
+   property rights. No rights are granted to You other than those expressly
+   set forth in Section 2 of this License.
+
+   The name "Audora", its logo, and associated branding are trademarks of
+   Utkarsh Wadalkar and may not be used without prior written permission.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5. THIRD-PARTY COMPONENTS
+
+   The Software is built upon and distributes third-party open-source
+   components, including but not limited to Electron, Chromium, React,
+   Python, and FastAPI. These components are governed by their own
+   respective licenses and are not covered by the restrictions in Section 3
+   of this License.
+
+   The inclusion of third-party components does not grant You any additional
+   rights to the Software's own Source Code or proprietary elements.
+
+   Refer to the accompanying LICENSES.chromium.html and
+   LICENSE.electron.txt files for third-party license notices.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6. CONTRIBUTIONS AND PERMISSIONS
+
+   Any contribution, suggestion, or improvement submitted to the copyright
+   owner regarding the Software shall be deemed a non-exclusive, perpetual,
+   irrevocable grant to the copyright owner to use, incorporate, and
+   distribute such contribution without obligation or compensation.
+
+   To request permissions beyond the scope of this License (such as
+   commercial licensing or source access), contact:
+   utkarsh-wadalkar(https://github.com/utkarsh-wadalkar) on GitHub/Mail.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7. TERMINATION
+
+   This License terminates automatically and immediately if You breach any
+   of its terms. Upon termination:
+     (a) all rights granted to You under this License cease immediately;
+     (b) You must uninstall and destroy all copies of the Software in Your
+         possession or control; and
+     (c) Sections 4, 7, and 8 survive termination indefinitely.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+   IN NO EVENT SHALL THE COPYRIGHT OWNER BE LIABLE FOR ANY DIRECT, INDIRECT,
+   INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING BUT
+   NOT LIMITED TO PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+   THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9. GOVERNING LAW
+
+   This License shall be governed by and construed in accordance with the
+   laws of India, without regard to its conflict of law provisions.
+   Any disputes arising under this License shall be subject to the exclusive
+   jurisdiction of the courts located in India.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
