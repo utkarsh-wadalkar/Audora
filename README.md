@@ -183,7 +183,8 @@ Lossless ALAC files are roughly **30–50 MB per track**. A typical album (12 tr
 Audora is built on top of:
 - [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 - [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
-            *A Big Thank's to* [*zhaarey*](https://github.com/zhaarey)
+
+- *A Big Thank's to* ♥ [*zhaarey*](https://github.com/zhaarey) ♥ 
 ---
 
 Made with 🎧 by [Utkarsh-Wadalkar](https://github.com/utkarsh-wadalkar)
