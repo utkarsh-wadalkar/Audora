@@ -37,6 +37,8 @@ _DOCKER_DESKTOP_PATHS = [
 class DockerManager:
     def __init__(self) -> None:
         self._client: Optional["docker.DockerClient"] = None
+        # Human-readable reason the last start_container() call failed, or None.
+        self.last_start_error: Optional[str] = None
 
     def get_client(self) -> Optional["docker.DockerClient"]:
         """Return a connected client, or None if the engine is unreachable."""
@@ -120,9 +122,16 @@ class DockerManager:
             return "unknown"
 
     def start_container(self, config: dict) -> Optional["Container"]:
-        """Run a container, removing any stale one with the same name first."""
+        """Run a container, removing any stale one with the same name first.
+
+        On failure returns None; the human-readable reason is stored on
+        ``self.last_start_error`` so callers can surface the real cause
+        instead of a generic message.
+        """
+        self.last_start_error = None
         client = self.get_client()
         if client is None:
+            self.last_start_error = "Docker is not running"
             logger.error("Cannot start container: Docker not running")
             return None
 
@@ -133,18 +142,21 @@ class DockerManager:
                 try:
                     existing.remove(force=True)
                     logger.info(f"Removed stale container {name}")
-                except Exception as e:
-                    logger.warning(f"Could not remove stale {name}: {e}")
+                except Exception as remove_error:
+                    logger.warning(f"Could not remove stale {name}: {remove_error}")
 
         try:
             container = client.containers.run(**config)
             logger.info(f"Started container {name or container.short_id}")
             return container
-        except APIError as e:
-            logger.error(f"Docker API error starting container: {e.explanation or e}")
+        except APIError as api_error:
+            detail = api_error.explanation or str(api_error)
+            self.last_start_error = detail
+            logger.error(f"Docker API error starting container: {detail}")
             return None
-        except Exception as e:
-            logger.error(f"Failed to start container: {e}")
+        except Exception as start_error:
+            self.last_start_error = str(start_error)
+            logger.error(f"Failed to start container: {start_error}")
             return None
 
     def stop_container(self, name: str, timeout: int = 10) -> bool:

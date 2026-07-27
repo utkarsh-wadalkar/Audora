@@ -1,6 +1,6 @@
 """Wrapper container lifecycle (WorldObservationLog/wrapper fork).
 
-Key facts (verified in task.md):
+Key facts:
   * Image built locally, tagged ``wrapper``.
   * Args passed via ``-e args="..."`` env var, NOT direct command args.
   * Login mode:  args="-L email:password -H 0.0.0.0"
@@ -23,32 +23,31 @@ logger = get_logger("wrapper")
 
 WRAPPER_IMAGE = "wrapper"
 WRAPPER_CONTAINER_NAME = "audora-wrapper"
-WRAPPER_PORTS = {"10020/tcp": 10020, "20020/tcp": 20020, "30020/tcp": 30020}
 
-# Substrings that signal each state in the wrapper's stdout.
-_READY_MARKERS = ("listening", "server started", "ready")
-_2FA_MARKERS = ("2fa", "two-factor", "verification code", "enter the code")
-_ERROR_MARKERS = ("invalid", "incorrect", "failed to login", "authentication failed")
+# Substrings matched against lowercased wrapper stdout to detect each state.
+_READY_LOG_MARKERS = ("listening", "server started", "ready")
+_TWO_FACTOR_LOG_MARKERS = ("2fa", "two-factor", "verification code", "enter the code")
+_LOGIN_ERROR_LOG_MARKERS = ("invalid", "incorrect", "failed to login", "authentication failed")
 
 
 class WrapperManager:
     def __init__(self) -> None:
         self._ready = False
         self._pending_2fa = False
-        self._auth_callbacks: List[Callable[[dict], None]] = []
+        self._auth_event_listeners: List[Callable[[dict], None]] = []
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_monitor = False
 
     # --- Auth event fan-out (consumed by app.py -> ws/auth) ---
-    def register_auth_callback(self, cb: Callable[[dict], None]) -> None:
-        if cb not in self._auth_callbacks:
-            self._auth_callbacks.append(cb)
+    def register_auth_callback(self, listener: Callable[[dict], None]) -> None:
+        if listener not in self._auth_event_listeners:
+            self._auth_event_listeners.append(listener)
 
     def _emit_auth(self, event_type: str, message: str) -> None:
         event = {"type": event_type, "message": message}
-        for cb in list(self._auth_callbacks):
+        for listener in list(self._auth_event_listeners):
             try:
-                cb(event)
+                listener(event)
             except Exception:
                 pass
 
@@ -61,7 +60,11 @@ class WrapperManager:
             "name": WRAPPER_CONTAINER_NAME,
             "environment": {"args": args},
             "volumes": {data_path: {"bind": "/app/rootfs/data", "mode": "rw"}},
-            "ports": WRAPPER_PORTS,
+            # network_mode="host" shares the host network namespace directly, so
+            # the wrapper's ports (10020/20020/30020) are accessible on the host
+            # without explicit port bindings.  Passing both network_mode="host"
+            # AND a ports mapping causes a Docker APIError ("conflicting options:
+            # port publishing and the host network mode"), so we omit ports here.
             "network_mode": "host",
             "detach": True,
             "stdin_open": True,
@@ -93,7 +96,10 @@ class WrapperManager:
         config = self._base_config(args)
         container = docker_mgr.start_container(config)
         if container is None:
-            self._emit_auth("auth_error", "Failed to start decryption service")
+            # Surface the real Docker error (image missing, daemon error, etc.)
+            # so the UI shows an actionable message instead of a generic one.
+            real_error = docker_mgr.last_start_error or "Failed to start decryption service"
+            self._emit_auth("auth_error", real_error)
             return False
 
         # Monitor logs in a background thread for readiness / 2FA / errors.
@@ -115,28 +121,28 @@ class WrapperManager:
                 for line in docker_mgr.stream_logs(container_id, follow=True):
                     if self._stop_monitor:
                         break
-                    self._inspect_line(line, is_login)
-            except Exception as e:
-                logger.warning(f"wrapper monitor ended: {e}")
+                    self._inspect_log_line(line, is_login)
+            except Exception as monitor_error:
+                logger.warning(f"wrapper monitor ended: {monitor_error}")
 
         self._monitor_thread = threading.Thread(target=run, daemon=True)
         self._monitor_thread.start()
 
-    def _inspect_line(self, line: str, is_login: bool) -> None:
-        safe = redact_credentials(line)
-        logger.info(f"[wrapper] {safe}")
-        low = line.lower()
+    def _inspect_log_line(self, line: str, is_login: bool) -> None:
+        redacted_line = redact_credentials(line)
+        logger.info(f"[wrapper] {redacted_line}")
+        lowered_line = line.lower()
 
-        if any(m in low for m in _ERROR_MARKERS):
+        if any(marker in lowered_line for marker in _LOGIN_ERROR_LOG_MARKERS):
             self._emit_auth("auth_error", "Incorrect Apple ID or password")
             return
 
-        if is_login and not self._pending_2fa and any(m in low for m in _2FA_MARKERS):
+        if is_login and not self._pending_2fa and any(marker in lowered_line for marker in _TWO_FACTOR_LOG_MARKERS):
             self._pending_2fa = True
             self._emit_auth("auth_2fa_required", "Enter your 6-digit verification code")
             return
 
-        if any(m in low for m in _READY_MARKERS):
+        if any(marker in lowered_line for marker in _READY_LOG_MARKERS):
             if not self._ready:
                 self._ready = True
                 self._pending_2fa = False
@@ -148,8 +154,8 @@ class WrapperManager:
     def is_wrapper_ready(self) -> bool:
         if self._ready:
             return True
-        # Fall back to container-running check if we missed the marker.
-        return docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) == "running" and self._ready
+        # Fall back to container-running check if we missed the ready log marker.
+        return docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) == "running"
 
     def wait_until_ready(self, timeout: int = 60) -> bool:
         deadline = time.time() + timeout
