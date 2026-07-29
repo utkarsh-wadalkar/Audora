@@ -74,10 +74,9 @@ Click **Open App** and you're ready to go!
 
 ## Step 4 — Download Music
 
-1. Open **🍎 Music** in your browser (music.apple.com)
+1. Open **🍎 Music**
 2. Find an album, playlist, or track you want to download
-3. Copy the URL from your browser's address bar
-
+3. Copy the sharable URL of that album, playlist, or track you want to download
    *Example:*
    ```
    https://music.apple.com/us/album/thriller/269572838
@@ -155,14 +154,14 @@ Yes. Audora downloads tracks using your active 🍎 Music subscription. If your 
 **Is this legal?**
 Audora is intended for personal use only. Downloading music you have legitimately paid for (via subscription) for personal offline listening is a common practice, but you are responsible for complying with 🍎's Terms of Service in your region.
 
-**Will this work on Mac?**
-Not yet. Windows only for now. Mac support is planned for a future version.
+**Will this work on Mac or Linux?**
+Not yet. Windows only for now.
 
 **Can I download my entire library at once?**
 Yes — paste a playlist URL and Audora will download every track in it.
 
 **How much space do I need?**
-Lossless ALAC files are roughly **30–50 MB per track**. A typical album (12 tracks) is about **400–600 MB**.
+Lossless ALAC files are roughly **30–50 MB per track**.
 
 ---
 
