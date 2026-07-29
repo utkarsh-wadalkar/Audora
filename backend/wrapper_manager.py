@@ -60,6 +60,12 @@ class WrapperManager:
             "name": WRAPPER_CONTAINER_NAME,
             "environment": {"args": args},
             "volumes": {data_path: {"bind": "/app/rootfs/data", "mode": "rw"}},
+            # The wrapper binary is a launcher: it bind-mounts /dev/urandom,
+            # chroots into ./rootfs, and execs the real decryptor inside. Both
+            # mount() and chroot() need elevated privileges, so without this
+            # the container exits immediately ("mount /dev/urandom failed").
+            # Upstream's own run instructions use --privileged for this reason.
+            "privileged": True,
             # network_mode="host" shares the host network namespace directly, so
             # the wrapper's ports (10020/20020/30020) are accessible on the host
             # without explicit port bindings.  Passing both network_mode="host"

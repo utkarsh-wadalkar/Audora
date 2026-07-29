@@ -137,3 +137,116 @@ def test_docker_version_via_sdk(monkeypatch):
     bundle = diagnostics.collect_diagnostics()
     assert "27.1.1" in bundle["docker_version"]
     assert "1.46" in bundle["docker_version"]
+
+
+# ---------------------------------------------------------------------------
+# Session data from rootfs/data must not leak either
+#
+# The wrapper persists an authenticated session under rootfs/data (a
+# kvs.sqlitedb token store, plus MUSIC_TOKEN / STOREFRONT_ID / dsid values).
+# Those are not "passwords", so they need their own coverage: a bundle that
+# strips the Apple ID but echoes a media-user-token is still a leak.
+# ---------------------------------------------------------------------------
+
+SESSION_SECRETS = {
+    "music_token": "eyJhbGciOiJFUzI1NiJ9.SESSIONTOKENVALUE.sig",
+    "media_user_token": "AwQAAAABDDDDwSESSIONMEDIATOKEN",
+    "dsid": "1234567890123456",
+    "bearer": "BEARERTOKENabcdef123456",
+}
+
+
+def _seed_session_data_in_logs():
+    """Log lines shaped like the wrapper's real session/token output."""
+    logger_module._RECENT.clear()
+    wrapper_log = logging.getLogger("wrapper")
+    handler = logger_module._RingBufferHandler()
+    wrapper_log.addHandler(handler)
+    try:
+        wrapper_log.info(f"MUSIC_TOKEN={SESSION_SECRETS['music_token']}")
+        wrapper_log.info(f"media-user-token: {SESSION_SECRETS['media_user_token']}")
+        wrapper_log.info(f"loaded account dsid={SESSION_SECRETS['dsid']}")
+        wrapper_log.info(f"Authorization: Bearer {SESSION_SECRETS['bearer']}")
+    finally:
+        wrapper_log.removeHandler(handler)
+
+
+def test_session_data_from_rootfs_does_not_leak(monkeypatch):
+    _mock_external(monkeypatch)
+    monkeypatch.setattr(
+        setup_manager.setup_mgr, "get_step_state", lambda step: StepState.PENDING
+    )
+    _seed_session_data_in_logs()
+
+    blob = _flatten(diagnostics.collect_diagnostics())
+
+    for label, secret in SESSION_SECRETS.items():
+        assert secret not in blob, f"session secret leaked ({label}): {secret!r}"
+
+
+# ---------------------------------------------------------------------------
+# HTTP boundary — the guarantee must hold on the real endpoint response,
+# not merely on collect_diagnostics() in isolation.
+# ---------------------------------------------------------------------------
+
+def test_endpoint_returns_all_expected_fields(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app as app_module
+
+    _mock_external(monkeypatch)
+    monkeypatch.setattr(
+        setup_manager.setup_mgr, "get_step_state", lambda step: StepState.PENDING
+    )
+
+    with TestClient(app_module.app) as client:
+        response = client.get("/setup/diagnostics")
+
+    assert response.status_code == 200, "the route must be registered (was a 404)"
+    payload = response.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    for field in (
+        "docker_version",
+        "wsl_status",
+        "os_build",
+        "recent_logs",
+        "failed_step",
+        "report",
+    ):
+        assert field in data, f"missing diagnostic field: {field}"
+    assert isinstance(data["recent_logs"], list)
+    assert "=== Audora Diagnostic Report ===" in data["report"]
+
+
+def test_endpoint_response_contains_no_secrets(monkeypatch):
+    """The hard requirement, asserted on the serialised HTTP response body."""
+    from fastapi.testclient import TestClient
+
+    import app as app_module
+
+    _mock_external(monkeypatch)
+    _seed_failed_step_with_secrets(monkeypatch)
+    _seed_session_data_in_logs()
+    # Re-seed the credential secrets after the session seeding cleared the ring.
+    setup_log = logging.getLogger("setup")
+    handler = logger_module._RingBufferHandler()
+    setup_log.addHandler(handler)
+    try:
+        setup_log.error(
+            f"[build_wrapper] surfacing failure code=unknown transient=False: "
+            f"docker run {SECRET_LOGIN_ARG} failed for {SECRET_EMAIL}"
+        )
+        setup_log.info(f"password={SECRET_PASSWORD} token={SECRET_TOKEN}")
+    finally:
+        setup_log.removeHandler(handler)
+
+    with TestClient(app_module.app) as client:
+        response = client.get("/setup/diagnostics")
+
+    assert response.status_code == 200
+    # Scan the RAW serialised body — nothing can hide in a nested field.
+    raw_body = response.text
+    for secret in _ALL_SECRETS + list(SESSION_SECRETS.values()):
+        assert secret not in raw_body, f"secret leaked over HTTP: {secret!r}"
+

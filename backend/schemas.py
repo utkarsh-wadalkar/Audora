@@ -91,7 +91,6 @@ class SettingsUpdate(BaseModel):
     log_level: Optional[str] = None
     download_format: Optional[str] = None
     setup_complete: Optional[bool] = None
-    wrapper_build_context: Optional[str] = None
 
 
 class SettingsOut(BaseModel):

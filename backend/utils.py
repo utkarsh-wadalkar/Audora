@@ -73,6 +73,15 @@ def redact_credentials(text: str) -> str:
         r"\1 <redacted>",
         text,
     )
+    # Bearer <token> FIRST: the generic key rule below matches
+    # "authorization" and would otherwise consume only the word "Bearer",
+    # leaving the token itself exposed.
+    text = re.sub(
+        r"(bearer)\s+\S+",
+        r"\1 <redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
     # password / token / secret / api_key / authorization = <value> (any casing).
     text = re.sub(
         r"(password|passwd|pwd|token|secret|api[_-]?key|auth(?:orization)?)"
@@ -81,10 +90,11 @@ def redact_credentials(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    # Bearer <token> in an Authorization header value.
+    # Apple account identifier (dsid) — account-identifying, so treat as a
+    # secret even though it is not a credential.
     text = re.sub(
-        r"(bearer\s+)\S+",
-        r"\1<redacted>",
+        r"(dsid)(\s*[=:]\s*)\S+",
+        r"\1\2<redacted>",
         text,
         flags=re.IGNORECASE,
     )

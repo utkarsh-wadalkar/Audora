@@ -482,11 +482,14 @@ def setup_check():
 
 @app.post("/setup/images", response_model=ApiResponse)
 def setup_images():
-    """Kick off image pull/build in the background. Progress via ws/setup."""
-    settings = get_settings()
-    wrapper_ctx = settings.get("wrapper_build_context")
-    setup_mgr.run_image_setup(wrapper_ctx)
+    """Kick off image pull/build in the background. Progress via ws/setup.
+
+    Fully automatic — the wrapper image is built from the upstream release, so
+    no Dockerfile path or other user configuration is involved.
+    """
+    setup_mgr.run_image_setup()
     return ApiResponse(success=True, data={"started": True})
+
 
 
 @app.post("/setup/complete", response_model=ApiResponse)
