@@ -327,7 +327,7 @@ def test_run_image_setup_all_present_is_noop_success(monkeypatch):
 
     monkeypatch.setattr(dm, "pull_image_streaming", should_not_stream)
 
-    mgr._run_image_setup_blocking(wrapper_build_context=None, sleep=_NOSLEEP)
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
 
     # Reached completion via no-op successes for both images.
     assert mgr.get_step_state("pull_downloader") == StepState.SUCCESS
@@ -432,3 +432,246 @@ def test_emit_state_maps_states_to_existing_status_values():
     mgr._emit_state("s", StepState.SUCCESS, "")
     statuses = [e["status"] for e in events]
     assert statuses == ["running", "done"]  # never "success"/"failed" on the wire
+
+
+# ---------------------------------------------------------------------------
+# Automated wrapper build — download + extract + generate + build
+#
+# The wrapper image is built fully automatically from the upstream
+# WorldObservationLog/wrapper release. It must NEVER require a user-supplied
+# local Dockerfile or a Settings path: the old behaviour surfaced
+# "Wrapper Dockerfile not found; set it in Settings and retry." and dead-ended
+# the wizard. All network and Docker calls are mocked here, so these run with
+# no daemon and no internet.
+# ---------------------------------------------------------------------------
+
+def _stub_wrapper_io(monkeypatch, mgr, *, downloaded=None, extracted=None):
+    """Stub the download+extract halves so only orchestration is exercised."""
+    calls = {"download": [], "extract": [], "build": []}
+
+    def fake_download(url, dest):
+        calls["download"].append((url, dest))
+        if downloaded is not None:
+            downloaded(url, dest)
+
+    def fake_extract(archive, dest):
+        calls["extract"].append((archive, dest))
+        if extracted is not None:
+            extracted(archive, dest)
+
+    def fake_build(context):
+        calls["build"].append(context)
+
+    monkeypatch.setattr(mgr, "_download_file", fake_download)
+    monkeypatch.setattr(mgr, "_extract_archive", fake_extract)
+    monkeypatch.setattr(mgr, "_docker_build_wrapper", fake_build)
+    return calls
+
+
+def test_wrapper_build_is_idempotent_when_image_present(monkeypatch, tmp_path):
+    """Image already present -> straight to success, no download/extract/build."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: True)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    calls = _stub_wrapper_io(monkeypatch, mgr)
+
+    mgr._build_wrapper_step()
+
+    assert calls["download"] == [], "must not re-download an existing image"
+    assert calls["extract"] == [], "must not re-extract an existing image"
+    assert calls["build"] == [], "must not rebuild an existing image"
+
+
+def test_wrapper_build_emits_progress_for_each_stage(monkeypatch, tmp_path):
+    """Each stage emits a setup_progress event in the canonical schema."""
+    mgr, dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    _stub_wrapper_io(monkeypatch, mgr)
+
+    mgr._build_wrapper_step()
+
+    wrapper_events = [e for e in events if e["step"] == "build_wrapper"]
+    assert wrapper_events, "expected build_wrapper progress events"
+    # Same schema as pull_downloader: type/step/status/message on every event.
+    for e in wrapper_events:
+        assert e["type"] == "setup_progress"
+        assert e["step"] == "build_wrapper"
+        assert e["status"] in ("pending", "running", "done", "error")
+        assert isinstance(e["message"], str)
+
+    blob = " ".join(e["message"].lower() for e in wrapper_events)
+    for stage in ("download", "extract", "dockerfile", "build"):
+        assert stage in blob, f"no progress event narrating the {stage!r} stage"
+
+
+def test_wrapper_build_generates_exact_dockerfile(monkeypatch, tmp_path):
+    """The generated Dockerfile is written to the build context verbatim."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    _stub_wrapper_io(monkeypatch, mgr)
+
+    mgr._build_wrapper_step()
+
+    dockerfile = tmp_path / "Dockerfile"
+    assert dockerfile.exists(), "Dockerfile was not generated"
+    content = dockerfile.read_text(encoding="utf-8")
+    assert content == setup_manager.WRAPPER_DOCKERFILE
+    # The pinned, known-working content.
+    assert "FROM ubuntu:latest" in content
+    assert "WORKDIR /app" in content
+    assert "COPY . /app" in content
+    assert 'CMD ["bash", "-c", "./wrapper ${args}"]' in content
+    assert "EXPOSE 10020 20020" in content
+    # Windows zip extraction drops the exec bit, so the build must restore it.
+    assert "chmod +x" in content
+
+
+def test_generated_dockerfile_overwrites_the_archives_own(monkeypatch, tmp_path):
+    """The release zip ships its own Dockerfile; ours must win."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+
+    def drop_upstream_dockerfile(archive, dest):
+        # Simulate extraction shipping upstream's debian-based Dockerfile.
+        (tmp_path / "Dockerfile").write_text("FROM debian:13.2\n", encoding="utf-8")
+
+    _stub_wrapper_io(monkeypatch, mgr, extracted=drop_upstream_dockerfile)
+
+    mgr._build_wrapper_step()
+
+    content = (tmp_path / "Dockerfile").read_text(encoding="utf-8")
+    assert "debian" not in content, "upstream Dockerfile was not overwritten"
+    assert content == setup_manager.WRAPPER_DOCKERFILE
+
+
+def test_wrapper_build_ordering_is_download_extract_generate_build(monkeypatch, tmp_path):
+    """Dockerfile must be generated AFTER extraction, or the zip overwrites it."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    order = []
+
+    def note_download(url, dest):
+        order.append("download")
+
+    def note_extract(archive, dest):
+        order.append("extract")
+
+    monkeypatch.setattr(mgr, "_download_file", note_download)
+    monkeypatch.setattr(mgr, "_extract_archive", note_extract)
+
+    def note_build(context):
+        # Dockerfile must already be on disk by build time.
+        assert (tmp_path / "Dockerfile").exists()
+        order.append("build")
+
+    monkeypatch.setattr(mgr, "_docker_build_wrapper", note_build)
+
+    real_write = mgr._write_dockerfile
+
+    def note_write(context):
+        order.append("generate")
+        return real_write(context)
+
+    monkeypatch.setattr(mgr, "_write_dockerfile", note_write)
+
+    mgr._build_wrapper_step()
+
+    assert order == ["download", "extract", "generate", "build"]
+
+
+def test_wrapper_download_failure_is_classified_and_retried(monkeypatch, tmp_path):
+    """A network failure raises a classified _StepFailure the retry loop sees."""
+    mgr, dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    calls = _stub_wrapper_io(monkeypatch, mgr)
+    attempts = {"n": 0}
+
+    def failing_download(url, dest):
+        attempts["n"] += 1
+        raise OSError("connection reset by peer")
+
+    monkeypatch.setattr(mgr, "_download_file", failing_download)
+    slept = []
+
+    ok = mgr._run_step_with_retry(
+        "build_wrapper",
+        mgr._build_wrapper_step,
+        "Building wrapper image...",
+        sleep=slept.append,
+    )
+
+    assert ok is False
+    # "connection reset" classifies as transient -> auto-retried, then surfaced.
+    assert attempts["n"] == 4, "expected 1 attempt + 3 silent retries"
+    assert slept == [2, 5, 10]
+    errs = [e for e in events if e["status"] == "error"]
+    assert len(errs) == 1
+    assert errs[0]["error"]["code"] == ErrorCode.REGISTRY_UNAVAILABLE
+    assert errs[0]["error"]["transient"] is True
+
+
+def test_wrapper_build_never_asks_for_a_settings_dockerfile(monkeypatch, tmp_path):
+    """Regression: the old dead-end error must never be emitted again."""
+    mgr, dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+    _stub_wrapper_io(monkeypatch, mgr)
+
+    def fake_pull(image, on_progress):
+        return True
+
+    monkeypatch.setattr(dm, "pull_image_streaming", fake_pull)
+
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+
+    blob = " ".join(e.get("message", "") for e in events)
+    assert "Settings" not in blob
+    assert "Dockerfile not found" not in blob
+    assert mgr.get_step_state("build_wrapper") == StepState.SUCCESS
+    assert mgr.get_step_state("complete") == StepState.SUCCESS
+
+
+def test_wrapper_archive_is_not_left_in_the_build_context(monkeypatch, tmp_path):
+    """The 48MB zip must not survive into `COPY . /app` and bloat the image."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: False)
+    monkeypatch.setattr(mgr, "_wrapper_work_dir", lambda: str(tmp_path))
+
+    archive_name = setup_manager.WRAPPER_ASSET_NAME
+
+    def fake_download(url, dest):
+        # Land a stand-in archive exactly where the real download would.
+        with open(dest, "wb") as f:
+            f.write(b"PK\x03\x04 not-a-real-zip")
+
+    monkeypatch.setattr(mgr, "_download_file", fake_download)
+    monkeypatch.setattr(mgr, "_extract_archive", lambda a, d: None)
+    monkeypatch.setattr(mgr, "_docker_build_wrapper", lambda c: None)
+
+    mgr._build_wrapper_step()
+
+    assert not (tmp_path / archive_name).exists(), (
+        "the downloaded archive was left in the build context"
+    )
+    # The generated Dockerfile is still there — cleanup is surgical.
+    assert (tmp_path / "Dockerfile").exists()
+
+
+def test_run_image_setup_takes_no_build_context_argument():
+    """The Settings-based wrapper_build_context parameter is gone for good."""
+    import inspect
+
+    for fn in (SetupManager.run_image_setup, SetupManager._run_image_setup_blocking):
+        params = inspect.signature(fn).parameters
+        assert "wrapper_build_context" not in params, (
+            f"{fn.__name__} still accepts a Settings-supplied build context"
+        )
+

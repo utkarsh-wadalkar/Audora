@@ -23,7 +23,6 @@ DEFAULTS: Dict[str, Any] = {
     "log_level": "INFO",
     "download_format": "alac",  # alac | aac | atmos
     "setup_complete": False,
-    "wrapper_build_context": "",  # dir containing the wrapper Dockerfile
 }
 
 _cache: Dict[str, Any] | None = None

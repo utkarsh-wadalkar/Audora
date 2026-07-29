@@ -38,6 +38,9 @@ backend/build/
 *.db
 *.sqlite
 *.sqlite3
+# SQLite WAL-mode sidecars, created at runtime next to the db.
+*.db-shm
+*.db-wal
 backend/data/music.db
 backend/data/audora.db
 
