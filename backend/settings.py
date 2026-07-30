@@ -23,6 +23,10 @@ DEFAULTS: Dict[str, Any] = {
     "log_level": "INFO",
     "download_format": "alac",  # alac | aac | atmos
     "setup_complete": False,
+    # Leave the wrapper container running when Audora exits, so the next start
+    # reuses it instead of tearing it down and rebuilding. Removing it on exit
+    # is what made the container churn on every app start.
+    "keep_wrapper_running": True,
 }
 
 _cache: Dict[str, Any] | None = None
