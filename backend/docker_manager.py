@@ -124,7 +124,7 @@ class DockerManager:
     def start_container(self, config: dict) -> Optional["Container"]:
         """Run a container, removing any stale one with the same name first.
 
-        On failure returns None; the human-readable reason is stored on
+        On failure returns None; the reason is stored on
         ``self.last_start_error`` so callers can surface the real cause
         instead of a generic message.
         """

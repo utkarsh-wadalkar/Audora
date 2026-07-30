@@ -170,7 +170,7 @@ Lossless ALAC files are roughly **30–50 MB per track**.
 | Requirement | Details |
 |-------------|---------|
 | OS | Windows 10 or 11 (64-bit) |
-| Disk space | 10 GB for setup + space for your music |
+| Disk space | 4 GB for setup |
 | Internet | Required for downloading |
 | 🍎 Music | Active subscription required |
 | Docker Desktop | Installed automatically by Audora |
@@ -181,9 +181,9 @@ Lossless ALAC files are roughly **30–50 MB per track**.
 
 Audora is built on top of:
 - [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
-- [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
+- [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)
 
-- *A Big Thank's to* ♥ [*zhaarey*](https://github.com/zhaarey) ♥ 
+- *A Big Thank's to* ♥ [*zhaarey*](https://github.com/zhaarey) & [*WorldObservationLog*](https://github.com/WorldObservationLog) ♥ 
 ---
 
 Made with 🎧 by [Utkarsh-Wadalkar](https://github.com/utkarsh-wadalkar)
