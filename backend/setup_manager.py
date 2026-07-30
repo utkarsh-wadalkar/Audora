@@ -110,18 +110,32 @@ _STATE_TO_EMIT_STATUS = {
 class ErrorCode:
     DOCKER_UNRESPONSIVE = "docker_unresponsive"  # API unreachable despite "running"
     DNS_FAILURE = "dns_failure"                   # cannot resolve registry host
+    OFFLINE = "offline"                            # no internet connection at all
     DISK_FULL = "disk_full"                       # < required + buffer free
     REGISTRY_RATE_LIMIT = "registry_rate_limit"   # HTTP 429 from ghcr.io
     REGISTRY_UNAVAILABLE = "registry_unavailable"  # registry 5xx / connection reset
     AUTH_DENIED = "auth_denied"                   # auth / permission / access denied
     UNKNOWN = "unknown"                            # unclassified — generic recovery
 
+# Network-ish codes that may actually be "the machine is offline". They are
+# re-checked against a live connectivity probe before surfacing, so a resolver
+# problem on an online machine stays DNS_FAILURE and only a genuinely
+# unreachable network becomes OFFLINE. Non-network codes are never promoted —
+# Docker being down or a full disk must not raise "connect to the internet".
+_MAYBE_OFFLINE_CODES = frozenset({
+    ErrorCode.DNS_FAILURE,
+    ErrorCode.REGISTRY_UNAVAILABLE,
+    ErrorCode.OFFLINE,
+})
+
 # Only TRANSIENT codes auto-retry (§6.2/§6.3). Everything else surfaces
 # immediately with an actionable message + code so Workstream E can render
-# exactly one recovery button.
+# exactly one recovery button. OFFLINE is transient: connectivity comes back
+# on its own, and setup should resume without the user restarting anything.
 _TRANSIENT_CODES = frozenset({
     ErrorCode.DOCKER_UNRESPONSIVE,
     ErrorCode.DNS_FAILURE,
+    ErrorCode.OFFLINE,
     ErrorCode.REGISTRY_RATE_LIMIT,
     ErrorCode.REGISTRY_UNAVAILABLE,
 })
@@ -130,6 +144,7 @@ _TRANSIENT_CODES = frozenset({
 _CODE_MESSAGES = {
     ErrorCode.DOCKER_UNRESPONSIVE: "Docker is still starting up. Retrying automatically...",
     ErrorCode.DNS_FAILURE: "Having trouble reaching the download server. Retrying automatically...",
+    ErrorCode.OFFLINE: "Please connect to the internet. Setup will continue automatically once you're back online.",
     ErrorCode.DISK_FULL: "You need about 6 GB free to continue. Free up some space and click Retry.",
     ErrorCode.REGISTRY_RATE_LIMIT: "The download server is temporarily busy. We'll try again shortly.",
     ErrorCode.REGISTRY_UNAVAILABLE: "The download server is temporarily unavailable. Retrying automatically...",
@@ -154,6 +169,20 @@ def classify_error(reason: str) -> str:
         return ErrorCode.DISK_FULL
     if any(t in text for t in ("dns", "resolve", "name resolution", "getaddrinfo", "name or service not known")):
         return ErrorCode.DNS_FAILURE
+    # Unreachable network / failed connection attempt. Previously fell through
+    # to UNKNOWN, which is permanent — so an offline machine surfaced an
+    # unhelpful error immediately instead of waiting for connectivity.
+    if any(
+        t in text
+        for t in (
+            "unreachable network",
+            "network is unreachable",
+            "failed to establish a new connection",
+            "no route to host",
+            "network is down",
+        )
+    ):
+        return ErrorCode.OFFLINE
     if any(t in text for t in ("unauthorized", "denied", "forbidden", "401", "403", "authentication")):
         return ErrorCode.AUTH_DENIED
     if any(t in text for t in ("500", "502", "503", "504", "server error", "connection reset", "connection aborted", "bad gateway")):
@@ -188,6 +217,12 @@ class SetupManager:
         self._progress_callbacks: List[Callable[[dict], None]] = []
         # Explicit per-step state machine (§6.1): step id -> StepState.
         self._step_states: Dict[str, str] = {}
+        # Guards ``_step_states`` — the setup run happens on a daemon thread
+        # while the API thread can read step state via ``get_step_state``.
+        self._state_lock = threading.Lock()
+        # Held for the duration of a run so two overlapping /setup/images
+        # calls cannot interleave transitions on the shared state machine.
+        self._run_lock = threading.Lock()
 
     def register_progress_callback(self, cb: Callable[[dict], None]) -> None:
         if cb not in self._progress_callbacks:
@@ -196,7 +231,22 @@ class SetupManager:
     # --- Step state machine (§6.1) ---
     def get_step_state(self, step: str) -> str:
         """Current :class:`StepState` for ``step`` (PENDING if never seen)."""
-        return self._step_states.get(step, StepState.PENDING)
+        with self._state_lock:
+            return self._step_states.get(step, StepState.PENDING)
+
+    def reset_step_states(self) -> None:
+        """Clear all step states so a fresh run starts from PENDING.
+
+        ``setup_mgr`` is a long-lived module-level singleton, so without this a
+        second run finds every step already in the terminal SUCCESS state.
+        ``_emit_state`` then suppresses the redundant SUCCESS emits while still
+        letting RUNNING through (RUNNING is deliberately exempt so retries can
+        restart the live stream) — the stream announces work starting and never
+        reports it finishing, and the wizard, which requires ``status:"done"``,
+        waits forever. Resetting is what makes a re-run behave like a first run.
+        """
+        with self._state_lock:
+            self._step_states.clear()
 
     def _set_state(self, step: str, state: str) -> bool:
         """Transition ``step`` to ``state``; return True if the state changed.
@@ -210,7 +260,7 @@ class SetupManager:
         current = self.get_step_state(step)
         allowed = {
             StepState.PENDING: {StepState.RUNNING},
-            StepState.RUNNING: {StepState.SUCCESS, StepState.FAILED, StepState.RUNNING},
+            StepState.RUNNING: {StepState.SUCCESS, StepState.FAILED},
             StepState.FAILED: {StepState.RUNNING},
             StepState.SUCCESS: set(),  # terminal; re-completing is a no-op (§6.4)
         }
@@ -219,7 +269,8 @@ class SetupManager:
         if state not in allowed.get(current, set()):
             logger.warning(f"Ignoring invalid transition {step}: {current} -> {state}")
             return False
-        self._step_states[step] = state
+        with self._state_lock:
+            self._step_states[step] = state
         return True
 
     def _emit(
@@ -328,18 +379,48 @@ class SetupManager:
                     sleep(delay)
                     continue
                 # Permanent, or transient with retries exhausted -> surface.
+                # Re-check network-ish failures against a live connectivity
+                # probe first: if the machine is simply offline, say so rather
+                # than blaming the download server.
+                surfaced_code = self._refine_network_error(failure.code)
+                surfaced_message = (
+                    _CODE_MESSAGES[ErrorCode.OFFLINE]
+                    if surfaced_code == ErrorCode.OFFLINE != failure.code
+                    else failure.message
+                )
                 logger.error(
-                    f"[{step}] surfacing failure code={failure.code} "
+                    f"[{step}] surfacing failure code={surfaced_code} "
                     f"transient={transient}: {failure.raw or failure.message}"
                 )
                 self._emit_state(
                     step,
                     StepState.FAILED,
-                    failure.message,
-                    error={"code": failure.code, "transient": transient},
+                    surfaced_message,
+                    error={
+                        "code": surfaced_code,
+                        "transient": is_transient(surfaced_code),
+                    },
                 )
                 return False
         return False  # unreachable, kept for clarity
+
+    def _refine_network_error(self, code: str) -> str:
+        """Promote a network-ish failure to OFFLINE when there is no internet.
+
+        Only codes in ``_MAYBE_OFFLINE_CODES`` are considered, so a Docker
+        outage, a full disk or an auth rejection can never raise "please
+        connect to the internet". A DNS failure on a machine that *is* online
+        keeps its own code — the probe is what prevents that false positive.
+        """
+        if code not in _MAYBE_OFFLINE_CODES:
+            return code
+        try:
+            if docker_mgr.check_internet():
+                return code
+        except Exception as probe_error:  # noqa: BLE001 - never mask the real failure
+            logger.warning(f"Connectivity probe failed to run: {probe_error}")
+            return code
+        return ErrorCode.OFFLINE
 
     # --- Preflight checks (§7.2) ---
     def _preflight(self, disk_target: str) -> Optional[_StepFailure]:
@@ -474,8 +555,8 @@ class SetupManager:
         user-supplied Dockerfile or Settings path is ever required.
 
         Idempotent (§6.4): safe to re-call after a partial failure — present
-        images are no-op successes, an already-complete run re-emits success
-        without side effects.
+        images are no-op successes, and a re-run replays the full event
+        sequence (including terminal statuses) rather than going silent.
         """
         threading.Thread(
             target=self._run_image_setup_blocking,
@@ -493,6 +574,22 @@ class SetupManager:
         is idempotent and classified; a surfaced failure stops the run (the
         user retries that step via the same code path — §6.3/§6.4).
         """
+        # Serialise runs: two overlapping /setup/images calls would otherwise
+        # interleave transitions on the shared state machine, and whichever
+        # reached SUCCESS second would have its terminal emit suppressed.
+        with self._run_lock:
+            # Start every run from PENDING. Without this, a re-run on the
+            # long-lived singleton finds all steps already terminal and its
+            # SUCCESS emits are suppressed as redundant, so the wizard never
+            # sees a "done" and spins forever.
+            self.reset_step_states()
+            self._run_image_setup_steps(sleep)
+
+    def _run_image_setup_steps(
+        self,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """The actual step sequence, run under ``_run_lock`` by the caller."""
         disk_target = self._disk_target()
 
         # 1) Pull downloader (streaming + preflight + auto-retry).
@@ -611,24 +708,24 @@ class SetupManager:
         self._emit(step, "running", "Downloading wrapper...")
         try:
             self._download_file(WRAPPER_RELEASE_URL, archive)
-        except Exception as e:
-            logger.error(f"Wrapper download failed: {e}")
+        except Exception as download_error:
+            logger.error(f"Wrapper download failed: {download_error}")
             raise _StepFailure(
-                classify_error(str(e)),
+                classify_error(str(download_error)),
                 "Could not download the wrapper component.",
-                raw=str(e),
+                raw=str(download_error),
             )
 
         # 2) Extract it (flat: ``wrapper`` + ``rootfs/`` land at the root).
         self._emit(step, "running", "Extracting wrapper...")
         try:
             self._extract_archive(archive, context)
-        except Exception as e:
-            logger.error(f"Wrapper extract failed: {e}")
+        except Exception as extract_error:
+            logger.error(f"Wrapper extract failed: {extract_error}")
             raise _StepFailure(
                 ErrorCode.UNKNOWN,
                 "The downloaded wrapper component could not be unpacked.",
-                raw=str(e),
+                raw=str(extract_error),
             )
         finally:
             # The build context is COPY'd wholesale into the image, so the
@@ -643,12 +740,12 @@ class SetupManager:
         self._emit(step, "running", "Generating Dockerfile...")
         try:
             self._write_dockerfile(context)
-        except Exception as e:
-            logger.error(f"Wrapper Dockerfile write failed: {e}")
+        except Exception as dockerfile_error:
+            logger.error(f"Wrapper Dockerfile write failed: {dockerfile_error}")
             raise _StepFailure(
                 ErrorCode.UNKNOWN,
                 "Could not prepare the wrapper build.",
-                raw=str(e),
+                raw=str(dockerfile_error),
             )
 
         # 4) Build the image.
@@ -657,9 +754,13 @@ class SetupManager:
             self._docker_build_wrapper(context)
         except _StepFailure:
             raise
-        except Exception as e:
-            logger.error(f"Wrapper build failed: {e}")
-            raise _StepFailure(classify_error(str(e)), "Build failed — see logs", raw=str(e))
+        except Exception as build_error:
+            logger.error(f"Wrapper build failed: {build_error}")
+            raise _StepFailure(
+                classify_error(str(build_error)),
+                "Build failed — see logs",
+                raw=str(build_error),
+            )
 
 
     def mark_complete(self) -> None:

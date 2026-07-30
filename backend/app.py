@@ -189,10 +189,15 @@ async def lifespan(app: FastAPI):
     # Auto-start the wrapper if we have a session and the setting is on.
     if settings.get("auto_start_wrapper", True) and auth_mgr.is_logged_in():
         if docker_mgr.is_docker_running():
-            logger.info("Auto-starting wrapper (session exists)")
-            wrapper_mgr.start_wrapper()
-            # Await readiness without blocking the loop.
-            asyncio.create_task(_await_wrapper_ready())
+            if wrapper_mgr.is_wrapper_ready():
+                # Already up and serving from a previous run — reuse it rather
+                # than tearing it down, which would kill any live download.
+                logger.info("Wrapper already running; reusing it")
+            else:
+                logger.info("Auto-starting wrapper (session exists)")
+                wrapper_mgr.start_wrapper()
+                # Await readiness without blocking the loop.
+                asyncio.create_task(_await_wrapper_ready())
         else:
             logger.info("Docker not running; skipping wrapper auto-start")
 
@@ -205,7 +210,13 @@ async def lifespan(app: FastAPI):
     logger.info("Audora backend shutting down...")
     await queue_processor.stop()
     await dl_mgr.cancel_download()
-    wrapper_mgr.stop_wrapper()
+    # Leave the wrapper up by default so the next start reuses it instead of
+    # force-removing and rebuilding the container. Tearing it down here is what
+    # made the container churn on every app start.
+    if get_settings().get("keep_wrapper_running", True):
+        logger.info("Leaving wrapper running for the next start")
+    else:
+        wrapper_mgr.stop_wrapper()
 
 
 async def _await_wrapper_ready() -> None:

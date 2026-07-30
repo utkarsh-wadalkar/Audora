@@ -24,6 +24,17 @@ logger = get_logger("wrapper")
 WRAPPER_IMAGE = "wrapper"
 WRAPPER_CONTAINER_NAME = "audora-wrapper"
 
+# Host ports the wrapper serves on (network_mode="host", so container ports
+# are host ports). 10020 is the one downloads actually need, so it is what
+# gates readiness; the other two are probed only for reporting.
+WRAPPER_DECRYPT_PORT = 10020
+WRAPPER_M3U8_PORT = 20020
+WRAPPER_ACCOUNT_PORT = 30020
+
+# How long a single liveness probe may take. This runs on the startup path,
+# so it must not add perceptible latency.
+_PROBE_TIMEOUT_SECONDS = 1.0
+
 # Substrings matched against lowercased wrapper stdout to detect each state.
 _READY_LOG_MARKERS = ("listening", "server started", "ready")
 _TWO_FACTOR_LOG_MARKERS = ("2fa", "two-factor", "verification code", "enter the code")
@@ -93,6 +104,24 @@ class WrapperManager:
             self._emit_auth("auth_error", "Docker is not running")
             return False
 
+        # Reuse an already-serving wrapper instead of recreating it.
+        #
+        # A fresh backend process starts with `_ready = False` and no log
+        # monitor, so without this check a healthy container left over from a
+        # previous run gets force-removed and rebuilt on every app start,
+        # killing anything mid-download. The port probe is authoritative in a
+        # way the log scraping cannot be: it works regardless of which process
+        # started the container.
+        #
+        # Login is excluded deliberately — it passes different args
+        # (`-L email:password`), so reusing a container started without them
+        # would silently ignore the new credentials.
+        if not is_login and self._can_reuse_running_wrapper():
+            logger.info("Wrapper already running and serving; reusing it")
+            self._ready = True
+            self._pending_2fa = False
+            return True
+
         self._ready = False
         self._pending_2fa = False
         logger.info(f"Starting wrapper: {redact_credentials(args)}")
@@ -111,6 +140,28 @@ class WrapperManager:
         # Monitor logs in a background thread for readiness / 2FA / errors.
         self._start_monitor(container.id, is_login)
         return True
+
+    def _can_reuse_running_wrapper(self) -> bool:
+        """True if a container is up AND actually serving on its port.
+
+        Both halves matter. A container can report ``running`` while the
+        wrapper inside is still chrooting and has bound nothing, so status
+        alone would hand callers a dead port.
+        """
+        if docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) != "running":
+            return False
+        return self.is_wrapper_listening()
+
+    def is_wrapper_listening(self) -> bool:
+        """True if the wrapper's decrypt port accepts connections.
+
+        Only 10020 is checked: it is the port downloads depend on, and the
+        m3u8/account servers bind slightly later, so requiring all three would
+        report a usable wrapper as dead.
+        """
+        return docker_mgr.is_port_listening(
+            WRAPPER_DECRYPT_PORT, timeout=_PROBE_TIMEOUT_SECONDS
+        )
 
     def stop_wrapper(self) -> bool:
         self._stop_monitor = True
@@ -160,13 +211,23 @@ class WrapperManager:
     def is_wrapper_ready(self) -> bool:
         if self._ready:
             return True
-        # Fall back to container-running check if we missed the ready log marker.
-        return docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) == "running"
+        # Fall back to a real liveness probe if we missed the ready log marker
+        # (e.g. the container was started by a previous backend process, so no
+        # monitor thread ever scraped its logs). Container status alone is too
+        # weak — "running" is true before the wrapper binds its port.
+        if docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) != "running":
+            return False
+        return self.is_wrapper_listening()
 
     def wait_until_ready(self, timeout: int = 60) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._ready:
+                return True
+            # A reused container never emits a fresh "listening" line, so the
+            # probe is the only way this can ever succeed for it.
+            if self.is_wrapper_listening():
+                self._ready = True
                 return True
             if self._pending_2fa:
                 # Waiting on the user; don't burn the timeout.
@@ -177,11 +238,15 @@ class WrapperManager:
     def get_wrapper_status(self) -> Dict:
         status = docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME)
         running = status == "running"
+        # Report the same readiness the rest of the app acts on. Using the raw
+        # `_ready` flag here made queue_processor think a perfectly healthy
+        # reused wrapper was not ready, so it tore it down and restarted it.
+        ready = self.is_wrapper_ready() if running else False
         return {
             "running": running,
-            "ready": self._ready,
+            "ready": ready,
             "pending_2fa": self._pending_2fa,
-            "message": "Ready" if self._ready else ("Running" if running else "Stopped"),
+            "message": "Ready" if ready else ("Running" if running else "Stopped"),
         }
 
 
