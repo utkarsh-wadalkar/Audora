@@ -48,6 +48,12 @@ export function recoveryForError(error?: SetupStepError): RecoveryPlan {
     case 'registry_rate_limit':
     case 'registry_unavailable':
       return { label: 'Try Again' };
+    case 'offline':
+      return {
+        label: 'Try Again',
+        guidance:
+          'Audora needs an internet connection to download its components. Reconnect and setup will continue automatically.',
+      };
     case 'disk_full':
       return {
         label: 'Try Again',

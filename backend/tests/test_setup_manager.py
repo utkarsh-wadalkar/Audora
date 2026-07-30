@@ -90,6 +90,114 @@ def test_classify_unknown_is_permanent():
 
 
 # ---------------------------------------------------------------------------
+# Offline (§Part 3) — its own code, not folded into dns_failure.
+#
+# DNS can fail while the machine is online (bad resolver, blocked port 53),
+# whereas offline means nothing is reachable at all. They need different
+# treatment: only offline should raise "Please connect to the internet", and
+# it must auto-retry so setup resumes by itself once connectivity returns.
+# ---------------------------------------------------------------------------
+
+def test_offline_is_transient_so_setup_retries_when_back_online():
+    assert is_transient(ErrorCode.OFFLINE) is True
+
+
+def test_classify_network_unreachable_as_offline():
+    """Previously fell through to UNKNOWN, i.e. permanent and never retried."""
+    assert classify_error("[Errno 10051] socket operation to an unreachable network") == (
+        ErrorCode.OFFLINE
+    )
+    assert classify_error("[Errno 101] Network is unreachable") == ErrorCode.OFFLINE
+
+
+def test_classify_connection_failure_as_offline():
+    assert classify_error(
+        "Failed to establish a new connection: [Errno 11001]"
+    ) == ErrorCode.OFFLINE
+
+
+def test_offline_has_a_user_facing_message():
+    from setup_manager import _CODE_MESSAGES
+
+    message = _CODE_MESSAGES[ErrorCode.OFFLINE]
+    assert message, "offline needs its own actionable message"
+    assert "internet" in message.lower()
+
+
+def test_dns_failure_while_online_stays_dns_failure(monkeypatch):
+    """No false positives: a resolver problem is not an offline condition."""
+    mgr, _dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(setup_manager.docker_mgr, "check_internet", lambda: True)
+
+    code = mgr._refine_network_error(ErrorCode.DNS_FAILURE)
+    assert code == ErrorCode.DNS_FAILURE
+
+
+def test_dns_failure_while_offline_is_reclassified_as_offline(monkeypatch):
+    mgr, _dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(setup_manager.docker_mgr, "check_internet", lambda: False)
+
+    code = mgr._refine_network_error(ErrorCode.DNS_FAILURE)
+    assert code == ErrorCode.OFFLINE
+
+
+def test_non_network_errors_are_never_reclassified_as_offline(monkeypatch):
+    """Docker down, disk full and auth denied must not raise the banner."""
+    mgr, _dm = _make_mgr(monkeypatch)
+    # Even with no internet at all, these keep their own codes.
+    monkeypatch.setattr(setup_manager.docker_mgr, "check_internet", lambda: False)
+
+    for code in (
+        ErrorCode.DOCKER_UNRESPONSIVE,
+        ErrorCode.DISK_FULL,
+        ErrorCode.AUTH_DENIED,
+        ErrorCode.UNKNOWN,
+    ):
+        assert mgr._refine_network_error(code) == code, (
+            f"{code} must not be reclassified as offline"
+        )
+
+
+def test_offline_surfaces_the_offline_code_on_the_wire(monkeypatch):
+    """The frontend keys the banner off error.code, so it must arrive."""
+    mgr, dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+    monkeypatch.setattr(setup_manager.docker_mgr, "check_internet", lambda: False)
+
+    def offline_attempt():
+        raise _StepFailure(
+            ErrorCode.DNS_FAILURE, raw="[Errno 11001] getaddrinfo failed"
+        )
+
+    ok = mgr._run_step_with_retry(
+        "pull_downloader", offline_attempt, "Pulling...", sleep=_NOSLEEP
+    )
+
+    assert ok is False
+    errors = [event for event in events if event["status"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["error"]["code"] == ErrorCode.OFFLINE
+    assert errors[0]["error"]["transient"] is True
+
+
+def test_provisioned_system_never_reports_offline(monkeypatch):
+    """No network is needed when both images exist, so no banner."""
+    mgr, dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+    monkeypatch.setattr(dm, "image_exists", lambda name: True)
+    # Deliberately offline — it must not matter.
+    monkeypatch.setattr(setup_manager.docker_mgr, "check_internet", lambda: False)
+    monkeypatch.setattr(dm, "check_dns", lambda host: False)
+
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+
+    assert not [event for event in events if event["status"] == "error"], (
+        "a fully-provisioned start demanded internet it does not need"
+    )
+    assert mgr.get_step_state("complete") == StepState.SUCCESS
+
+
+# ---------------------------------------------------------------------------
 # State machine (§6.1)
 # ---------------------------------------------------------------------------
 
@@ -663,6 +771,174 @@ def test_wrapper_archive_is_not_left_in_the_build_context(monkeypatch, tmp_path)
     )
     # The generated Dockerfile is still there — cleanup is surgical.
     assert (tmp_path / "Dockerfile").exists()
+
+
+# ---------------------------------------------------------------------------
+# Re-running setup must still reach a terminal status (v1.4.0 hang)
+#
+# The wizard hung forever at "Finishing setup..." on a fully-provisioned
+# system. Root cause: ``setup_mgr`` is a module-level singleton whose
+# ``_step_states`` was never reset, so on a SECOND run every step was already
+# SUCCESS — a terminal state with an empty allowed-transition set. The
+# non-changing SUCCESS emits were then suppressed by ``_emit_state``, while
+# RUNNING emits are deliberately exempt from that suppression. Net effect: the
+# stream announced work starting and never reported it finishing, and the
+# frontend (which strictly requires ``status === "done"``) waited forever.
+#
+# These tests assert on the EMITTED event statuses that actually reach the
+# WebSocket, not on internal ``get_step_state()``. That distinction is exactly
+# what the pre-existing coverage missed.
+# ---------------------------------------------------------------------------
+
+_ALL_SETUP_STEPS = ("pull_downloader", "build_wrapper", "complete")
+
+
+def _provisioned_mgr(monkeypatch):
+    """A manager on a fully-provisioned system: both images already present."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "image_exists", lambda name: True)
+
+    def should_not_pull(image, on_progress):
+        raise AssertionError("must not pull when the image is already present")
+
+    monkeypatch.setattr(dm, "pull_image_streaming", should_not_pull)
+    return mgr, dm
+
+
+def test_rerun_on_provisioned_system_still_emits_terminal_statuses(monkeypatch):
+    """The regression: a second run must not go terminal-less."""
+    mgr, _dm = _provisioned_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    # First run — this one always worked.
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+    first_run_done = [e for e in events if e["status"] == "done"]
+    assert len(first_run_done) == 3, "sanity: the first run should emit 3 terminal frames"
+
+    # Second run in the SAME manager — the real-world singleton case.
+    events.clear()
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+
+    assert events, "the second run emitted nothing at all"
+    # Every step must reach a terminal status on the wire, not just internally.
+    for step in _ALL_SETUP_STEPS:
+        statuses = _statuses(events, step)
+        assert statuses, f"no events at all for {step!r} on the re-run"
+        assert statuses[-1] == "done", (
+            f"{step!r} never reached a terminal status on the re-run "
+            f"(got {statuses!r}) — the wizard would spin forever"
+        )
+
+
+def test_rerun_emits_complete_done_so_the_wizard_can_advance(monkeypatch):
+    """`complete`/done is the only signal the wizard has that setup finished."""
+    mgr, _dm = _provisioned_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+    events.clear()
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+
+    complete_statuses = _statuses(events, "complete")
+    assert "done" in complete_statuses, (
+        "step 'complete' never reached done on the re-run; the wizard's "
+        "Continue button stays disabled forever"
+    )
+
+
+def test_rerun_matches_the_first_runs_emitted_sequence(monkeypatch):
+    """A re-run on unchanged inputs should look identical on the wire."""
+    mgr, _dm = _provisioned_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+    first = [(e["step"], e["status"]) for e in events]
+
+    events.clear()
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+    second = [(e["step"], e["status"]) for e in events]
+
+    assert second == first, (
+        "the re-run's event sequence diverged from the first run's:\n"
+        f"  first : {first}\n"
+        f"  second: {second}"
+    )
+
+
+def test_frontend_advance_predicate_is_satisfied_on_rerun(monkeypatch):
+    """Mirror the frontend's actual gate: both image steps must be 'done'.
+
+    SetupWizard.tsx computes
+        bothDone = steps['pull_downloader'].status === 'done'
+                && steps['build_wrapper'].status === 'done'
+    reducing events keyed by step so the LAST frame per step wins. Reproduce
+    that reduction here so the backend contract is tested the way the UI
+    actually consumes it.
+    """
+    mgr, _dm = _provisioned_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+    events.clear()
+    mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+
+    # The frontend's reducer: latest frame per step overwrites earlier ones.
+    reduced = {}
+    for event in events:
+        reduced[event["step"]] = event["status"]
+
+    both_done = (
+        reduced.get("pull_downloader") == "done"
+        and reduced.get("build_wrapper") == "done"
+    )
+    assert both_done, (
+        f"the wizard's advance predicate is still false after a re-run: {reduced}"
+    )
+
+
+def test_repeated_runs_stay_terminal(monkeypatch):
+    """Not just the second run — the fifth must work too."""
+    mgr, _dm = _provisioned_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    for run_index in range(1, 6):
+        events.clear()
+        mgr._run_image_setup_blocking(sleep=_NOSLEEP)
+        for step in _ALL_SETUP_STEPS:
+            statuses = _statuses(events, step)
+            assert statuses and statuses[-1] == "done", (
+                f"run #{run_index}: {step!r} ended at {statuses!r}, not 'done'"
+            )
+
+
+# ---------------------------------------------------------------------------
+# The ws/setup message field is rendered verbatim in the UI terminal panel,
+# so it must never carry credentials even when the underlying error does.
+# ---------------------------------------------------------------------------
+
+def test_emitted_messages_never_carry_credentials(monkeypatch):
+    mgr, _dm = _make_mgr(monkeypatch)
+    events = _collect(mgr)
+
+    secret_password = "hunter2SuperSecret"
+    secret_email = "victim@icloud.com"
+
+    def leaky_attempt():
+        # A raw error carrying credentials, as a real docker failure might.
+        raise _StepFailure(
+            ErrorCode.UNKNOWN,
+            raw=f"docker run -L {secret_email}:{secret_password} failed",
+        )
+
+    mgr._run_step_with_retry(
+        "build_wrapper", leaky_attempt, "Building wrapper image...", sleep=_NOSLEEP
+    )
+
+    on_the_wire = " ".join(event.get("message", "") for event in events)
+    assert secret_password not in on_the_wire
+    assert secret_email not in on_the_wire
+    # The user still gets an actionable message, not a blank.
+    assert on_the_wire.strip(), "redaction must not blank the narration"
 
 
 def test_run_image_setup_takes_no_build_context_argument():

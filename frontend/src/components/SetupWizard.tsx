@@ -6,6 +6,11 @@ import { useAppStore, type SetupProgressEvent, type SetupStepState } from '../st
 import LiveProgressPanel, { type PullEvent } from './LiveProgressPanel';
 import RetryButton from './RetryButton';
 import DiagnosticReportButton from './DiagnosticReportButton';
+import SetupTerminalPanel, {
+  TERMINAL_MAX_LINES,
+  type TerminalLine,
+} from './SetupTerminalPanel';
+import OfflineBanner from './OfflineBanner';
 
 interface SystemCheck {
   windows: { ok: boolean; label: string };
@@ -52,6 +57,8 @@ function failureHeadline(step: SetupStepState): string {
       return 'Docker is still starting up and stopped responding.';
     case 'dns_failure':
       return 'Having trouble reaching the download server.';
+    case 'offline':
+      return 'No internet connection.';
     case 'registry_rate_limit':
       return 'The download server is temporarily busy.';
     case 'registry_unavailable':
@@ -109,6 +116,43 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     seedFromStatus();
   }, [seedFromStatus]);
 
+  // Append-only log for the terminal panel. The store keys steps by id and
+  // overwrites, which is right for the step rows but loses history — the
+  // terminal needs every event in arrival order, so it accumulates separately.
+  const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([]);
+  const lineIdRef = useRef(0);
+  // Dedupe guard for reconnects: /ws/setup has no server-side replay, but a
+  // drop-and-resume can redeliver the frame that was in flight. Keying on
+  // step+status+message means an identical consecutive frame is not repeated.
+  const lastLineKeyRef = useRef<string>('');
+
+  const appendTerminalLine = (event: SetupProgressEvent) => {
+    const text = event.message;
+    // The backend documents `message` as always present, but the type marks it
+    // optional — skip rather than printing "undefined".
+    if (!text) return;
+
+    const key = `${event.step}|${event.status}|${text}`;
+    if (key === lastLineKeyRef.current) return;
+    lastLineKeyRef.current = key;
+
+    const now = new Date();
+    const timestamp = [now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map((part) => String(part).padStart(2, '0'))
+      .join(':');
+
+    setTerminalLines((prev) => [
+      ...prev.slice(-(TERMINAL_MAX_LINES - 1)),
+      {
+        id: (lineIdRef.current += 1),
+        timestamp,
+        step: event.step,
+        status: event.status,
+        text,
+      },
+    ]);
+  };
+
   // Subscribe to the live event stream and funnel every event into the store.
   // On (re)connect (readyState → 'open') we re-seed from REST so no state is
   // lost across a drop — the seed only fills gaps and never downgrades a live
@@ -116,7 +160,9 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   const { readyState } = useWebSocket('/ws/setup', {
     onMessage: (data) => {
       if (data?.type === 'setup_progress') {
-        applySetupEvent(data as SetupProgressEvent);
+        const event = data as SetupProgressEvent;
+        applySetupEvent(event);
+        appendTerminalLine(event);
       }
     },
   });
@@ -210,6 +256,14 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   )?.id;
   const failedStep = failedStepId ? setupSteps[failedStepId] : undefined;
 
+  // Offline banner: driven solely by the backend's `offline` taxonomy code, so
+  // it cannot misfire on a Docker outage, a full disk or an auth rejection —
+  // those carry their own codes. A fully-provisioned start never reaches a
+  // network step, so it never surfaces this either. Because `offline` is
+  // transient the backend keeps retrying, and the banner disappears by itself
+  // when an attempt finally succeeds and the step leaves `error`.
+  const isOffline = failedStep?.error?.code === 'offline';
+
   // The step currently being pulled (running) — drives the LiveProgressPanel.
   // We surface the downloader's aggregate byte progress; the wrapper build has
   // no byte stream, so the panel narrates it as "preparing"/running.
@@ -259,7 +313,12 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 flex items-center justify-center p-8">
-      <div className="w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
+      <OfflineBanner visible={isOffline} />
+      {/* Two columns: the wizard keeps its fixed width, the terminal takes the
+          rest. `items-stretch` + max-h on the panel keeps a long log from
+          growing the row and pushing the card off-screen. */}
+      <div className="flex w-full max-w-5xl items-stretch justify-center gap-6">
+        <div className="w-full max-w-lg shrink-0 bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
         {/* Persistent breadcrumb (QC_plan §4.1) — hidden on the welcome splash. */}
         {screen !== 'welcome' && (
           <div className="flex items-center gap-1.5 mb-6 text-[11px] flex-wrap">
@@ -495,6 +554,17 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               Open App
             </button>
           </div>
+        )}
+        </div>
+
+        {/* Live log, right-hand column. Hidden on the welcome splash (nothing
+            has happened yet) and on narrow windows, where the wizard takes
+            priority over the log. */}
+        {screen !== 'welcome' && (
+          <SetupTerminalPanel
+            lines={terminalLines}
+            className="hidden max-h-[70vh] min-w-0 flex-1 lg:flex"
+          />
         )}
       </div>
     </div>

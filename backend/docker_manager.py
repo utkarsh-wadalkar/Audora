@@ -298,6 +298,50 @@ class DockerManager:
         finally:
             socket.setdefaulttimeout(old_timeout)
 
+    def check_internet(self, timeout: float = 3.0) -> bool:
+        """True if the machine appears to have working internet access.
+
+        Used to tell "offline" apart from other network failures: DNS can fail
+        while online (bad resolver, blocked port 53), and Docker being down is
+        not a connectivity problem at all. Only a failure here justifies
+        telling the user to connect to the internet.
+
+        Deliberately a TCP connect to a well-known host:port rather than a DNS
+        lookup, so a broken resolver on an otherwise-online machine does not
+        read as offline. Short timeout — this runs on a failure path where the
+        user is already waiting. Never raises.
+        """
+        # 1.1.1.1:443 and 8.8.8.8:443 — reachable without DNS.
+        for host, port in (("1.1.1.1", 443), ("8.8.8.8", 443)):
+            try:
+                with socket.create_connection((host, port), timeout=timeout):
+                    return True
+            except (OSError, ValueError):
+                continue
+        logger.info("Connectivity probe failed; treating the machine as offline")
+        return False
+
+    def is_port_listening(
+        self, port: int, host: str = "127.0.0.1", timeout: float = 1.0
+    ) -> bool:
+        """Return True if something accepts TCP connections on ``host:port``.
+
+        Used as a wrapper-liveness probe. The wrapper container runs with
+        ``network_mode="host"``, so its ports are host ports and a plain
+        connect is a valid check that the service is actually serving —
+        stronger than "the container status says running", which is true well
+        before the process inside has bound anything.
+
+        Runs on the startup path, so the timeout is deliberately short. Never
+        raises: any failure means "not listening".
+        """
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except (OSError, ValueError) as probe_error:
+            logger.debug(f"Port {host}:{port} not listening: {probe_error}")
+            return False
+
     def is_docker_api_responsive(self) -> bool:
         """Actually ping the Docker Engine API (not just a process check).
 
