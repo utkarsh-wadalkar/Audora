@@ -233,11 +233,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   };
 
   const Row = ({ ok, label }: { ok: boolean; label: string }) => (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex items-center gap-2.5 text-sm">
       {ok ? (
-        <Check size={16} className="text-green-400" />
+        <Check size={15} className="shrink-0 text-emerald-400" />
       ) : (
-        <X size={16} className="text-red-400" />
+        <X size={15} className="shrink-0 text-rose-400" />
       )}
       <span className={ok ? 'text-gray-200' : 'text-gray-400'}>{label}</span>
     </div>
@@ -312,13 +312,13 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       : undefined;
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950 flex items-center justify-center p-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-void p-8">
       <OfflineBanner visible={isOffline} />
       {/* Two columns: the wizard keeps its fixed width, the terminal takes the
           rest. `items-stretch` + max-h on the panel keeps a long log from
           growing the row and pushing the card off-screen. */}
       <div className="flex w-full max-w-5xl items-stretch justify-center gap-6">
-        <div className="w-full max-w-lg shrink-0 bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
+        <div className="glass w-full max-w-lg shrink-0 rounded-3xl p-8">
         {/* Persistent breadcrumb (QC_plan §4.1) — hidden on the welcome splash. */}
         {screen !== 'welcome' && (
           <div className="flex items-center gap-1.5 mb-6 text-[11px] flex-wrap">
@@ -332,11 +332,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 <div key={b.screen} className="flex items-center gap-1.5">
                   <span
                     className={
-                      'inline-flex items-center gap-1 rounded-full px-2 py-0.5 ' +
+                      'relative z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 ' +
                       (isCurrent
-                        ? 'bg-violet-600/30 text-violet-200 font-medium'
+                        ? 'bg-audora-500/25 font-medium text-audora-100'
                         : isDone
-                        ? 'text-green-400'
+                        ? 'text-emerald-400'
                         : 'text-gray-600')
                     }
                   >
@@ -344,7 +344,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                     {b.label}
                   </span>
                   {i < BREADCRUMBS.length - 1 && (
-                    <span className="text-gray-700">→</span>
+                    <span className="relative z-10 text-gray-700">→</span>
                   )}
                 </div>
               );
@@ -353,28 +353,50 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         )}
 
         {screen === 'welcome' && (
-          <div className="text-center space-y-5">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
-              <Music size={30} className="text-white" />
+          <div className="relative z-10 space-y-6 py-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-audora-500 shadow-knob">
+              <Music size={26} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold">Welcome to Audora</h1>
-            <p className="text-gray-400 text-sm">Let's get you set up in a few quick steps.</p>
+            <div className="space-y-2.5">
+              <h1 className="text-3xl font-semibold leading-tight tracking-tight text-gray-100">
+                Your Apple Music,
+                <br />
+                downloaded in lossless.
+              </h1>
+              <p className="max-w-sm text-sm leading-relaxed text-gray-400">
+                Setup takes a few minutes and runs once. Audora will check your system,
+                fetch what it needs, and sign you in.
+              </p>
+            </div>
             <button
               onClick={() => setScreen('system')}
-              className="bg-violet-600 hover:bg-violet-500 px-6 py-3 rounded-lg font-medium"
+              className="w-full rounded-xl bg-audora-500 px-6 py-3.5 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99]"
             >
-              Get Started
+              Get started
             </button>
+            <p className="text-xs text-gray-500">
+              An active Apple Music subscription is required.
+            </p>
           </div>
         )}
 
         {screen === 'system' && (
-          <div className="space-y-5">
-            <h2 className="text-xl font-bold">System Check</h2>
+          <div className="relative z-10 space-y-5">
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-semibold tracking-tight text-gray-100">
+                Checking your system
+              </h2>
+              <p className="text-sm text-gray-400">
+                Audora needs Docker Desktop running to do its work.
+              </p>
+            </div>
             {!check ? (
-              <Loader2 className="animate-spin text-violet-400" />
+              <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-black/25 p-4 text-sm text-gray-400">
+                <Loader2 size={15} className="animate-spin text-audora-300" />
+                Looking at your setup…
+              </div>
             ) : (
-              <div className="space-y-3 bg-gray-950 rounded-lg p-4 border border-gray-800">
+              <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/25 p-4">
                 <Row ok={check.windows.ok} label={check.windows.label} />
                 <Row
                   ok={check.docker.installed}
@@ -389,50 +411,62 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 href={check.docker.download_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 text-violet-400 text-sm"
+                className="inline-flex items-center gap-2 text-sm text-audora-300 transition-colors hover:text-audora-200"
               >
-                <DownloadIcon size={14} /> Download Docker Desktop
+                <DownloadIcon size={14} /> Get Docker Desktop
               </a>
             )}
-            <div className="flex gap-3">
-              <button onClick={runCheck} className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm">
-                Re-check
-              </button>
+            <div className="flex gap-2.5">
               <button
                 onClick={startImages}
                 disabled={!check?.docker.running}
-                className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-4 py-2 rounded-lg text-sm"
+                className="flex-1 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
               >
                 Continue
+              </button>
+              <button
+                onClick={runCheck}
+                className="rounded-xl border border-white/[0.10] bg-white/[0.05] px-4 py-3 text-sm text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09]"
+              >
+                Check again
               </button>
             </div>
           </div>
         )}
 
         {screen === 'images' && (
-          <div className="space-y-5">
-            <h2 className="text-xl font-bold">Setting up components</h2>
+          <div className="relative z-10 space-y-5">
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-semibold tracking-tight text-gray-100">
+                Getting the components
+              </h2>
+              <p className="text-sm text-gray-400">
+                One-time download. The log on the right shows exactly what is happening.
+              </p>
+            </div>
 
             {/* Per-step state rows (state machine §6.1). Reflect pending /
                 running / done / error. A transient error mid-silent-retry is
                 still reported by the backend as `running`, so we render it as
                 in-progress here — only a surfaced `error` shows as failed. */}
-            <div className="space-y-3 bg-gray-950 rounded-lg p-4 border border-gray-800">
+            <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/25 p-4">
               {IMAGE_STEPS.map(({ id, label }) => {
                 const s = setupSteps[id];
                 return (
-                  <div key={id} className="flex items-center gap-2 text-sm">
+                  <div key={id} className="flex items-center gap-2.5 text-sm">
                     {s?.status === 'done' ? (
-                      <Check size={16} className="text-green-400" />
+                      <Check size={15} className="shrink-0 text-emerald-400" />
                     ) : s?.status === 'error' ? (
-                      <X size={16} className="text-red-400" />
+                      <X size={15} className="shrink-0 text-rose-400" />
                     ) : s?.status === 'running' ? (
-                      <Loader2 size={16} className="animate-spin text-violet-400" />
+                      <Loader2 size={15} className="shrink-0 animate-spin text-audora-300" />
                     ) : (
-                      <Loader2 size={16} className="animate-spin text-gray-600" />
+                      /* Queued: a static ring, not a spinner — nothing is
+                         happening on this step yet. */
+                      <div className="h-3.5 w-3.5 shrink-0 rounded-full border border-gray-600" />
                     )}
                     <span>{label}</span>
-                    <span className="text-gray-600 text-xs ml-auto">
+                    <span className="ml-auto shrink-0 text-xs text-gray-500">
                       {s?.message || 'waiting'}
                     </span>
                   </div>
@@ -451,15 +485,17 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 with the diagnostics copy as the ONLY secondary action beside
                 it (§1.1, §7, §8.2). Never a dead end, never a terminal. */}
             {failedStep && (
-              <div className="space-y-4 bg-red-950/30 border border-red-900/50 rounded-lg p-4">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+              <div className="space-y-4 rounded-xl border border-rose-400/25 bg-rose-500/[0.08] p-4">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0 text-rose-300" />
                   <div className="space-y-1">
-                    <p className="text-sm font-medium text-red-200">
+                    <p className="text-sm font-medium text-rose-100">
                       {failureHeadline(failedStep)}
                     </p>
                     {failedStep.message && (
-                      <p className="text-xs text-gray-400">{failedStep.message}</p>
+                      /* Secondary text tinted from the surface hue — gray on a
+                         rose panel reads as a defect. */
+                      <p className="text-xs text-rose-200/70">{failedStep.message}</p>
                     )}
                   </div>
                 </div>
@@ -479,7 +515,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             <button
               onClick={() => setScreen('signin')}
               disabled={!bothDone}
-              className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-4 py-2 rounded-lg text-sm"
+              className="w-full rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
             >
               Continue
             </button>
@@ -487,9 +523,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         )}
 
         {screen === 'signin' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold">Sign in to Apple Music</h2>
-            {authErr && <p className="text-sm text-red-400">{authErr}</p>}
+          <div className="relative z-10 space-y-4">
+            <h2 className="text-xl font-semibold tracking-tight text-gray-100">
+              Sign in to Apple Music
+            </h2>
+            {authErr && <p className="text-sm text-rose-300">{authErr}</p>}
             {!need2fa ? (
               <>
                 <input
@@ -497,19 +535,23 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Apple ID (email)"
-                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-violet-500"
+                  aria-label="Apple ID email"
+                  autoComplete="username"
+                  className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none"
                 />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-violet-500"
+                  aria-label="Apple ID password"
+                  autoComplete="current-password"
+                  className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none"
                 />
                 <button
                   onClick={submitCreds}
                   disabled={busy}
-                  className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg py-3 text-sm font-medium flex items-center justify-center gap-2"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
                 >
                   {busy && <Loader2 size={16} className="animate-spin" />}
                   {busy ? authMsg || 'Signing in...' : 'Sign In'}
@@ -524,12 +566,14 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="6-digit code"
-                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-center text-lg tracking-[0.5em] focus:outline-none focus:border-violet-500"
+                  aria-label="Two-factor verification code"
+                  autoComplete="one-time-code"
+                  className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-center text-lg tracking-[0.5em] text-gray-100 placeholder:text-gray-500 placeholder:tracking-normal focus:border-audora-500/60 focus:outline-none"
                 />
                 <button
                   onClick={submit2fa}
                   disabled={busy}
-                  className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg py-3 text-sm font-medium"
+                  className="w-full rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
                 >
                   Verify
                 </button>
@@ -539,19 +583,21 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         )}
 
         {screen === 'done' && (
-          <div className="text-center space-y-5">
-            <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center">
-              <Check size={30} className="text-green-400" />
+          <div className="relative z-10 space-y-6 py-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15">
+              <Check size={26} className="text-emerald-300" />
             </div>
-            <h2 className="text-xl font-bold">Everything is ready</h2>
-            <p className="text-gray-400 text-sm">
+            <h2 className="text-2xl font-semibold tracking-tight text-gray-100">
+              Everything is ready
+            </h2>
+            <p className="text-sm leading-relaxed text-gray-400">
               You can now download Apple Music tracks in lossless quality.
             </p>
             <button
               onClick={finish}
-              className="bg-violet-600 hover:bg-violet-500 px-6 py-3 rounded-lg font-medium"
+              className="w-full rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99]"
             >
-              Open App
+              Open Audora
             </button>
           </div>
         )}

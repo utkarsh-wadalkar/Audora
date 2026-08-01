@@ -3,20 +3,27 @@ import { FolderOpen, LogOut } from 'lucide-react';
 import { api, electronAPI } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 
+const FORMAT_OPTIONS = [
+  { value: 'alac', label: 'ALAC (Lossless)' },
+  { value: 'aac', label: 'AAC' },
+  { value: 'atmos', label: 'Dolby Atmos' },
+];
+
 export default function Settings() {
   const [settings, setSettings] = useState<any>({});
   const [saved, setSaved] = useState(false);
   const refreshStatus = useAppStore((s) => s.refreshStatus);
+  const authStatus = useAppStore((s) => s.authStatus);
 
   useEffect(() => {
     api
       .get('/settings')
-      .then((r) => setSettings(r.data.data || {}))
+      .then((response) => setSettings(response.data.data || {}))
       .catch(() => {});
   }, []);
 
   const update = (key: string, value: any) => {
-    setSettings((prev: any) => ({ ...prev, [key]: value }));
+    setSettings((previous: any) => ({ ...previous, [key]: value }));
     setSaved(false);
   };
 
@@ -37,63 +44,114 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <h2 className="text-2xl font-bold">Settings</h2>
-      <div className="space-y-4">
+    <div className="max-w-2xl animate-rise-in space-y-6 pt-2">
+      <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Settings</h1>
+
+      <section className="space-y-3">
+        <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-gray-500">
+          Locations
+        </h2>
         <FolderField
-          label="Downloads Folder"
+          label="Downloads folder"
+          hint="Where finished tracks are saved, organised by artist and album."
           value={settings.downloads_path || ''}
           onBrowse={() => selectFolder('downloads_path')}
         />
         <FolderField
-          label="Wrapper Data Path"
+          label="Wrapper data folder"
+          hint="Working directory for the Apple Music wrapper container."
           value={settings.wrapper_data_path || ''}
           onBrowse={() => selectFolder('wrapper_data_path')}
         />
+      </section>
 
-        <div className="bg-gray-900 rounded-lg p-4 border border-gray-800 space-y-3">
-          <label className="block text-sm font-medium text-gray-300">Default Download Format</label>
-          <select
-            value={settings.download_format || 'alac'}
-            onChange={(e) => update('download_format', e.target.value)}
-            className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+      <section className="space-y-3">
+        <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-gray-500">
+          Downloads
+        </h2>
+
+        <div className="glass space-y-2.5 rounded-2xl p-4">
+          <label
+            htmlFor="download-format"
+            className="relative z-10 block text-sm font-medium text-gray-200"
           >
-            <option value="alac">ALAC (Lossless)</option>
-            <option value="aac">AAC</option>
-            <option value="atmos">Dolby Atmos</option>
+            Default format
+          </label>
+          <p className="relative z-10 text-xs text-gray-500">
+            ALAC keeps full lossless quality, at roughly 30–50 MB per track.
+          </p>
+          <select
+            id="download-format"
+            value={settings.download_format || 'alac'}
+            onChange={(event) => update('download_format', event.target.value)}
+            className="relative z-10 w-full rounded-xl border border-white/[0.10] bg-black/30 px-3 py-2.5 text-sm text-gray-100 focus:border-audora-500/60 focus:outline-none"
+          >
+            {FORMAT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 
-        <div className="bg-gray-900 rounded-lg p-4 border border-gray-800 flex items-center justify-between">
-          <label className="text-sm font-medium text-gray-300">Auto-start wrapper on launch</label>
+        <div className="glass flex items-center justify-between gap-4 rounded-2xl p-4">
+          <div className="relative z-10">
+            <span className="block text-sm font-medium text-gray-200">
+              Start the wrapper on launch
+            </span>
+            <span className="mt-0.5 block text-xs text-gray-500">
+              Skips the wait before your first download of the session.
+            </span>
+          </div>
           <button
             onClick={() => update('auto_start_wrapper', !settings.auto_start_wrapper)}
-            className={`w-11 h-6 rounded-full transition-colors relative ${
-              settings.auto_start_wrapper ? 'bg-violet-600' : 'bg-gray-700'
+            role="switch"
+            aria-checked={!!settings.auto_start_wrapper}
+            aria-label="Start the wrapper on launch"
+            className={`relative z-10 h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-out ${
+              settings.auto_start_wrapper ? 'bg-audora-500' : 'bg-white/[0.12]'
             }`}
           >
-            <div
-              className={`w-4 h-4 bg-white rounded-full transition-transform absolute top-1 ${
+            <span
+              className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform duration-300 ease-out ${
                 settings.auto_start_wrapper ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
           </button>
         </div>
+      </section>
 
-        <div className="flex gap-3">
-          <button
-            onClick={save}
-            className="bg-violet-600 hover:bg-violet-500 px-5 py-2 rounded-lg text-sm font-medium"
-          >
-            {saved ? 'Saved!' : 'Save Settings'}
-          </button>
+      <section className="space-y-3">
+        <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-gray-500">
+          Account
+        </h2>
+        <div className="glass flex items-center justify-between gap-4 rounded-2xl p-4">
+          <div className="relative z-10">
+            <span className="block text-sm font-medium text-gray-200">Apple Music</span>
+            <span className="mt-0.5 block text-xs text-gray-500">
+              {authStatus
+                ? 'Signed in. An active subscription is required to download.'
+                : 'Not signed in.'}
+            </span>
+          </div>
           <button
             onClick={signOut}
-            className="bg-red-600/20 text-red-400 hover:bg-red-600/30 px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+            disabled={!authStatus}
+            className="relative z-10 flex shrink-0 items-center gap-2 rounded-xl border border-rose-400/25 bg-rose-500/10 px-4 py-2 text-sm text-rose-300 transition-colors duration-300 ease-out hover:bg-rose-500/[0.16] disabled:border-white/[0.08] disabled:bg-white/[0.04] disabled:text-rose-200/40"
           >
-            <LogOut size={16} /> Sign Out
+            <LogOut size={15} /> Sign out
           </button>
         </div>
+      </section>
+
+      <div className="flex items-center gap-3 pt-1">
+        <button
+          onClick={save}
+          className="rounded-xl bg-audora-500 px-5 py-2.5 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99]"
+        >
+          Save settings
+        </button>
+        {saved && <span className="text-xs text-emerald-300">Saved</span>}
       </div>
     </div>
   );
@@ -101,27 +159,35 @@ export default function Settings() {
 
 function FolderField({
   label,
+  hint,
   value,
   onBrowse,
 }: {
   label: string;
+  hint: string;
   value: string;
   onBrowse: () => void;
 }) {
   return (
-    <div className="bg-gray-900 rounded-lg p-4 border border-gray-800 space-y-3">
-      <label className="block text-sm font-medium text-gray-300">{label}</label>
-      <div className="flex gap-2">
+    <div className="glass space-y-2.5 rounded-2xl p-4">
+      <div className="relative z-10">
+        <span className="block text-sm font-medium text-gray-200">{label}</span>
+        <span className="mt-0.5 block text-xs text-gray-500">{hint}</span>
+      </div>
+      <div className="relative z-10 flex gap-2">
         <input
           value={value}
           readOnly
-          className="flex-1 bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+          aria-label={label}
+          placeholder="Not set"
+          className="min-w-0 flex-1 rounded-xl border border-white/[0.10] bg-black/30 px-3 py-2.5 font-mono text-xs text-gray-300 placeholder:text-gray-600 focus:outline-none"
         />
         <button
           onClick={onBrowse}
-          className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded"
+          aria-label={`Choose ${label.toLowerCase()}`}
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.05] px-3.5 text-sm text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09]"
         >
-          <FolderOpen size={16} />
+          <FolderOpen size={15} /> Browse
         </button>
       </div>
     </div>

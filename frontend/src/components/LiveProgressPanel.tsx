@@ -199,11 +199,11 @@ export default function LiveProgressPanel({ layers, narration }: LiveProgressPan
   const preparing = layers.length === 0 || !aggregate.hasBytes;
 
   return (
-    <div className="w-full bg-gray-900 rounded-2xl border border-gray-800 p-6 space-y-4 text-gray-100">
+    <div className="glass w-full space-y-4 rounded-2xl p-6 text-gray-100">
       {/* Narration line (QC_plan §4.3 / §5.4) */}
-      <div className="flex items-center gap-2 text-sm text-gray-300 min-h-[20px]">
+      <div className="relative z-10 flex min-h-[20px] items-center gap-2 text-sm text-gray-300">
         {!isComplete && (
-          <Loader2 size={16} className="animate-spin text-violet-400 shrink-0" />
+          <Loader2 size={16} className="shrink-0 animate-spin text-audora-300" />
         )}
         <span className="truncate">
           {narration ??
@@ -216,10 +216,10 @@ export default function LiveProgressPanel({ layers, narration }: LiveProgressPan
       </div>
 
       {/* Aggregate progress bar (QC_plan §5.2) */}
-      <div className="space-y-2">
-        <div className="h-2.5 w-full rounded-full bg-gray-800 overflow-hidden">
+      <div className="relative z-10 space-y-2">
+        <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/30">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-[width] duration-300 ease-out"
+            className="h-full rounded-full bg-gradient-to-r from-[#4A8FD6] to-[#A78BC9] transition-[width] duration-300 ease-out"
             style={{ width: `${preparing ? 0 : aggregate.percent}%` }}
           />
         </div>
@@ -236,9 +236,9 @@ export default function LiveProgressPanel({ layers, narration }: LiveProgressPan
         </div>
 
         {/* Speed + ETA (QC_plan §5.3) — only when we have a real estimate. */}
-        <div className="flex items-center justify-between text-xs min-h-[16px]">
+        <div className="flex min-h-[16px] items-center justify-between text-xs">
           <span className="text-gray-500 tabular-nums">{speedLabel}</span>
-          <span className="text-violet-300">
+          <span className="text-audora-300">
             {isComplete ? '' : etaLabel}
           </span>
         </div>
@@ -248,7 +248,7 @@ export default function LiveProgressPanel({ layers, narration }: LiveProgressPan
       <button
         type="button"
         onClick={() => setShowDetails((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+        className="relative z-10 flex items-center gap-1.5 text-xs text-gray-400 transition-colors hover:text-gray-200"
       >
         {showDetails ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Terminal size={13} className="text-gray-500" />
@@ -258,7 +258,7 @@ export default function LiveProgressPanel({ layers, narration }: LiveProgressPan
       {/* Terminal-styled per-layer log (QC_plan §3.3, §8.1). One line per
           layer, updating in place — never appended duplicates. */}
       {showDetails && (
-        <div className="rounded-lg bg-black/80 border border-gray-800 p-3 font-mono text-[11px] leading-relaxed overflow-x-auto">
+        <div className="scrollbar-thin relative z-10 overflow-x-auto rounded-lg border border-white/[0.07] bg-black/80 p-3 font-mono text-[11px] leading-relaxed">
           {layers.length === 0 ? (
             <div className="text-gray-600">Waiting for layer information...</div>
           ) : (
@@ -283,11 +283,11 @@ function LayerLine({ layer }: { layer: PullEvent }) {
 
   // Color the status like the CLI's semantic coloring.
   const statusColor = done
-    ? 'text-green-400'
+    ? 'text-emerald-400'
     : layer.status === 'Extracting'
     ? 'text-amber-300'
     : layer.status === 'Downloading'
-    ? 'text-violet-300'
+    ? 'text-audora-300'
     : 'text-gray-400';
 
   // Byte-based bar, only when this layer reports byte progress.

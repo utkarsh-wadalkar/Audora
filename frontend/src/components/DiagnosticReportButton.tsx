@@ -55,17 +55,18 @@ export default function DiagnosticReportButton({
       onClick={copyReport}
       disabled={state === 'loading'}
       className={
-        'inline-flex items-center gap-2 rounded-lg bg-gray-800 hover:bg-gray-700 ' +
-        'disabled:opacity-50 px-4 py-2 text-sm text-gray-200 transition-colors ' +
+        'inline-flex items-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.04] ' +
+        'px-4 py-2.5 text-sm text-gray-200 transition-colors hover:bg-white/[0.07] ' +
+        'disabled:opacity-50 ' +
         className
       }
     >
       {state === 'loading' ? (
-        <Loader2 size={14} className="animate-spin text-violet-400" />
+        <Loader2 size={14} className="animate-spin text-audora-300" />
       ) : state === 'copied' ? (
-        <Check size={14} className="text-green-400" />
+        <Check size={14} className="text-emerald-400" />
       ) : (
-        <ClipboardCopy size={14} className="text-violet-400" />
+        <ClipboardCopy size={14} className="text-audora-300" />
       )}
       {state === 'copied'
         ? 'Copied to clipboard'
