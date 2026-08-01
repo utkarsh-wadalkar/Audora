@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { RotateCw } from 'lucide-react';
 import { api } from '../api/client';
 
+const FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
 export default function History() {
   const [items, setItems] = useState<any[]>([]);
   const [filter, setFilter] = useState('all');
@@ -9,7 +16,7 @@ export default function History() {
   const load = () =>
     api
       .get('/history')
-      .then((r) => setItems(r.data.data || []))
+      .then((response) => setItems(response.data.data || []))
       .catch(() => {});
 
   useEffect(() => {
@@ -21,65 +28,95 @@ export default function History() {
     setItems([]);
   };
 
-  const retry = async (id: number) => {
-    await api.post(`/history/${id}/retry`);
+  const retry = async (itemId: number) => {
+    await api.post(`/history/${itemId}/retry`);
   };
 
-  const filtered = filter === 'all' ? items : items.filter((i) => i.status === filter);
+  const filtered = filter === 'all' ? items : items.filter((item) => item.status === filter);
+
+  const statusTone = (status: string) => {
+    if (status === 'completed') return 'bg-emerald-500/12 text-emerald-300';
+    if (status === 'cancelled') return 'bg-white/[0.06] text-gray-400';
+    return 'bg-rose-500/12 text-rose-300';
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">History</h2>
-        <div className="flex items-center gap-3">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm"
+    <div className="animate-rise-in space-y-6 pt-2">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-100">History</h1>
+        <div className="ml-auto flex items-center gap-2">
+          {/* Segmented filter — the four states are few enough to show at once,
+              which beats hiding them behind a select. */}
+          <div className="flex gap-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] p-0.5">
+            {FILTERS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setFilter(option.value)}
+                aria-pressed={filter === option.value}
+                className={`rounded-full px-3 py-1.5 text-xs transition-colors duration-300 ease-out ${
+                  filter === option.value
+                    ? 'bg-audora-500/22 text-audora-100'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={clear}
+            disabled={items.length === 0}
+            className="rounded-full px-3 py-2 text-xs text-rose-300 transition-colors hover:text-rose-200 disabled:text-gray-600"
           >
-            <option value="all">All</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <button onClick={clear} className="text-sm text-red-400 hover:text-red-300">
-            Clear History
+            Clear
           </button>
         </div>
       </div>
+
       {filtered.length === 0 ? (
-        <p className="text-gray-500">No history yet.</p>
+        <p className="text-sm text-gray-500">
+          {items.length === 0
+            ? 'No downloads yet. Finished jobs are listed here so you can re-run them.'
+            : `No ${filter} downloads.`}
+        </p>
       ) : (
-        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-800 text-gray-400">
-              <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Tracks</th>
-                <th className="px-4 py-3">Errors</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3"></th>
+        <div className="glass overflow-hidden rounded-2xl">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/[0.07] text-[11px] uppercase tracking-wide text-gray-500">
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Title</th>
+                <th className="px-4 py-3 text-right font-medium">Tracks</th>
+                <th className="px-4 py-3 text-right font-medium">Errors</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="relative z-10">
               {filtered.map((item) => (
-                <tr key={item.id} className="border-t border-gray-800">
-                  <td className="px-4 py-3 text-gray-500">
-                    {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                <tr
+                  key={item.id}
+                  className="border-t border-white/[0.05] transition-colors hover:bg-white/[0.03]"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs tabular-nums text-gray-500">
+                    {item.created_at
+                      ? new Date(item.created_at).toLocaleDateString()
+                      : '—'}
                   </td>
-                  <td className="px-4 py-3 truncate max-w-xs">{item.title || item.url}</td>
-                  <td className="px-4 py-3">{item.track_count}</td>
-                  <td className="px-4 py-3">{item.error_count || 0}</td>
+                  <td className="max-w-sm truncate px-4 py-3 text-gray-100">
+                    {item.title || item.url}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-gray-300">
+                    {item.track_count}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-gray-500">
+                    {item.error_count || 0}
+                  </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-xs px-2 py-1 rounded ${
-                        item.status === 'completed'
-                          ? 'bg-green-900 text-green-300'
-                          : item.status === 'cancelled'
-                          ? 'bg-gray-700 text-gray-300'
-                          : 'bg-red-900 text-red-300'
-                      }`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusTone(
+                        item.status
+                      )}`}
                     >
                       {item.status}
                     </span>
@@ -87,8 +124,9 @@ export default function History() {
                   <td className="px-4 py-3">
                     <button
                       onClick={() => retry(item.id)}
-                      title="Re-download"
-                      className="text-gray-500 hover:text-violet-400 flex items-center gap-1"
+                      title="Download this again"
+                      aria-label="Download this again"
+                      className="rounded text-gray-600 transition-colors hover:text-audora-300"
                     >
                       <RotateCw size={14} />
                     </button>

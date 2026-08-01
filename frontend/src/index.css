@@ -2,23 +2,185 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Caveat 700 — the wordmark face, and the only script font in the app.
+   Self-hosted rather than pulled from fonts.googleapis.com: this is an
+   offline-capable Electron app loading over file://, and Caveat is not a
+   Windows system font, so a CDN link would silently fall the wordmark back
+   to sans-serif whenever the user is offline. Latin subset only (the
+   wordmark is ASCII). `display: block` avoids a flash of the fallback
+   lockup — the file is local, so the block period is imperceptible. */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('./assets/fonts/caveat-700.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @layer base {
   body {
-    @apply bg-gray-950 text-gray-100;
+    @apply bg-surface-void text-gray-100;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     margin: 0;
     user-select: none;
+  }
+
+  /* Ambient wash behind the glass. Without something to refract, frosted
+     surfaces read as flat gray panels. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 12% -10%, rgba(124, 92, 191, 0.20), transparent 70%),
+      radial-gradient(48rem 32rem at 96% 8%, rgba(192, 84, 178, 0.14), transparent 68%),
+      radial-gradient(52rem 44rem at 50% 108%, rgba(67, 44, 122, 0.22), transparent 72%);
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-audora-400/70 ring-offset-2 ring-offset-surface-void;
+  }
+}
+
+@layer components {
+  /* The glass recipe. Defined once; every panel composes it.
+     Layered so the top edge catches light and the surface has a real
+     refracting tint rather than flat translucency. */
+  .glass {
+    @apply relative border border-white/[0.08] bg-white/[0.04] shadow-glass;
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+  }
+
+  .glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.09) 0%,
+      rgba(255, 255, 255, 0.02) 38%,
+      transparent 100%
+    );
+  }
+
+  /* Interactive glass: cards and rows that respond to the pointer. */
+  .glass-hover {
+    @apply transition-[background-color,border-color,transform] duration-300 ease-out;
+  }
+
+  .glass-hover:hover {
+    @apply border-white/[0.14] bg-white/[0.07];
+  }
+
+  /* The Audora wordmark lockup. Defined once so every instance is identical:
+     Caveat 700 with the brand gradient clipped to the letterforms, warm sand
+     into amber, left to right. This is the ONLY place the script face and
+     this gradient appear — see DESIGN.md § Colors. */
+  .wordmark {
+    font-family: 'Caveat', cursive;
+    font-weight: 700;
+    background-image: linear-gradient(90deg, #cabeb0 0%, #e09e52 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    /* Caveat's ascenders and descenders overshoot its em box; a hair of
+       vertical padding keeps the gradient from clipping the letterforms. */
+    padding-block: 0.05em;
+  }
+
+  /* Brushed-metal console shell for the download radio panel. The texture is
+     a woven micro-gradient, not an image asset. */
+  .console-shell {
+    background-color: theme('colors.console.shell');
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, transparent 55%),
+      repeating-linear-gradient(
+        92deg,
+        rgba(255, 255, 255, 0.022) 0px,
+        rgba(255, 255, 255, 0.022) 1px,
+        transparent 1px,
+        transparent 3px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.05) 0px,
+        rgba(0, 0, 0, 0.05) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+  }
+
+  /* Recessed LCD readout. The inset shadow is what makes it sit *in* the
+     shell rather than on it. */
+  .console-readout {
+    background-color: theme('colors.console.readout');
+    box-shadow:
+      inset 0 2px 10px rgba(0, 0, 0, 0.75),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.5),
+      0 1px 0 rgba(255, 255, 255, 0.07);
   }
 }
 
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     @apply bg-transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-700 rounded-full;
+    @apply rounded-full bg-white/10;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+
+  /* Horizontal rails hide their scrollbar; the overflow is the affordance. */
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Fades a horizontal rail's trailing edge so cards imply continuation. */
+  .rail-fade {
+    mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+  }
+
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Windows High Contrast strips background images, which would leave the
+   gradient-clipped wordmark as invisible transparent text. Fall back to the
+   system text color so the lockup still reads. */
+@media (forced-colors: active) {
+  .wordmark {
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: CanvasText;
   }
 }

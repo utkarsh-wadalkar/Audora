@@ -8,21 +8,21 @@ export default function Queue() {
 
   const fetchQueue = async () => {
     try {
-      const res = await api.get('/queue');
-      setItems(res.data.data || []);
+      const response = await api.get('/queue');
+      setItems(response.data.data || []);
     } catch {
-      // ignore
+      // Leave the current list in place if the backend is unreachable.
     }
   };
 
   useEffect(() => {
     fetchQueue();
-    const id = setInterval(fetchQueue, 3000);
-    return () => clearInterval(id);
+    const pollId = setInterval(fetchQueue, 3000);
+    return () => clearInterval(pollId);
   }, []);
 
-  const remove = async (id: number) => {
-    await api.delete(`/queue/${id}`);
+  const remove = async (itemId: number) => {
+    await api.delete(`/queue/${itemId}`);
     fetchQueue();
   };
 
@@ -41,60 +41,76 @@ export default function Queue() {
     }
   };
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'downloading':
-        return 'text-violet-300';
-      case 'completed':
-        return 'text-green-400';
-      case 'failed':
-        return 'text-red-400';
-      default:
-        return 'text-gray-500';
-    }
+  const statusTone = (status: string) => {
+    if (status === 'downloading') return 'bg-audora-500/20 text-audora-200';
+    if (status === 'completed') return 'bg-emerald-500/12 text-emerald-300';
+    if (status === 'failed') return 'bg-rose-500/12 text-rose-300';
+    return 'bg-white/[0.06] text-gray-400';
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Queue</h2>
-        <div className="flex items-center gap-3">
+    <div className="animate-rise-in space-y-6 pt-2">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Queue</h1>
+        <span className="font-mono text-xs tabular-nums text-gray-500">
+          {items.length} waiting
+        </span>
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={togglePause}
-            className="text-sm flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg"
+            className="flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.05] px-3.5 py-2 text-xs text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09]"
           >
-            {paused ? <Play size={14} /> : <Pause size={14} />}
+            {paused ? <Play size={13} /> : <Pause size={13} />}
             {paused ? 'Resume' : 'Pause'}
           </button>
-          <button onClick={clear} className="text-sm text-red-400 hover:text-red-300">
-            Clear All
+          <button
+            onClick={clear}
+            disabled={items.length === 0}
+            className="rounded-full px-3 py-2 text-xs text-rose-300 transition-colors hover:text-rose-200 disabled:text-gray-600"
+          >
+            Clear all
           </button>
         </div>
       </div>
+
       {items.length === 0 ? (
-        <p className="text-gray-500">Queue is empty.</p>
+        <p className="text-sm text-gray-500">
+          Nothing queued. Add a link from the Download page and it will line up here.
+        </p>
       ) : (
-        <div className="space-y-2">
-          {items.map((item, idx) => (
+        <div className="glass overflow-hidden rounded-2xl">
+          {items.map((item, index) => (
             <div
               key={item.id}
-              className="bg-gray-900 rounded-lg p-4 flex justify-between items-center border border-gray-800"
+              className={`relative z-10 flex items-center gap-4 px-4 py-3 ${
+                index > 0 ? 'border-t border-white/[0.05]' : ''
+              }`}
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="text-gray-600 text-sm w-6 text-right">{idx + 1}</span>
-                <div className="min-w-0">
-                  <p className="font-medium truncate max-w-md">{item.title || item.url}</p>
-                  <span className={`text-xs uppercase ${statusColor(item.status)}`}>
-                    {item.status}
-                  </span>
-                </div>
-              </div>
+              <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-600">
+                {index + 1}
+              </span>
+              <p className="min-w-0 flex-1 truncate text-sm text-gray-100">
+                {item.title || item.url}
+              </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${statusTone(
+                  item.status
+                )}`}
+              >
+                {item.status}
+              </span>
               <button
                 onClick={() => remove(item.id)}
-                className="text-gray-500 hover:text-red-400"
                 disabled={item.status === 'downloading'}
+                title={
+                  item.status === 'downloading'
+                    ? 'Stop this from the Download page'
+                    : 'Remove from queue'
+                }
+                aria-label="Remove from queue"
+                className="shrink-0 rounded text-gray-600 transition-colors hover:text-rose-300 disabled:text-gray-700 disabled:hover:text-gray-700"
               >
-                <Trash2 size={16} />
+                <Trash2 size={15} />
               </button>
             </div>
           ))}

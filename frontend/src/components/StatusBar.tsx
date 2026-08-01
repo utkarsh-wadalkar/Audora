@@ -10,13 +10,13 @@ export default function StatusBar() {
 
   const StatusDot = ({ ok }: { ok: boolean }) => (
     <Circle
-      size={8}
-      className={ok ? 'text-green-400 fill-green-400' : 'text-red-400 fill-red-400'}
+      size={7}
+      className={ok ? 'fill-emerald-400 text-emerald-400' : 'fill-rose-400 text-rose-400'}
     />
   );
 
   return (
-    <div className="h-8 bg-gray-900 border-t border-gray-800 flex items-center px-4 gap-6 text-xs text-gray-400">
+    <div className="flex h-7 shrink-0 items-center gap-6 px-8 pb-1 text-[11px] text-gray-500">
       <div className="flex items-center gap-2">
         <Container size={12} />
         <StatusDot ok={dockerStatus} />
@@ -28,12 +28,12 @@ export default function StatusBar() {
         <span>Wrapper</span>
       </div>
       <button
-        className="flex items-center gap-2 hover:text-gray-200"
+        className="flex items-center gap-2 rounded transition-colors hover:text-gray-300"
         onClick={() => !authStatus && openLogin()}
       >
         <User size={12} />
         <StatusDot ok={authStatus} />
-        <span>{authStatus ? 'Signed In' : 'Not Signed In'}</span>
+        <span>{authStatus ? 'Signed in' : 'Sign in'}</span>
       </button>
     </div>
   );
