@@ -143,6 +143,7 @@ Session.vim
 # Apple Music session data (sensitive — never commit)
 **/rootfs/data/
 wrapper/rootfs/data/
+.claude/
 
 # Downloaded music files
 downloads/
