@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "gradient-text",
+        "value": "*",
+        "files": [
+          "frontend/src/index.css"
+        ],
+        "createdAt": "2026-08-01T15:49:40.380Z",
+        "reason": "The .wordmark recipe is the app's only gradient text and an approved brand decision documented in DESIGN.md (Colors > The two brand gradients): Caveat 700 with linear-gradient(90deg, #cabeb0, #e09e52) clipped to the Audora lockup. Text-only by rule, one word, three sites, with a forced-colors fallback."
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-01T15:51:12.276Z",
+        "reason": "Committed UI face documented in DESIGN.md Typography; personality lives in the mono readouts, the Caveat wordmark, and the download receiver, not the body face"
+      }
+    ]
+  }
+}

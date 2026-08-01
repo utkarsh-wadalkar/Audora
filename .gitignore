@@ -69,6 +69,11 @@ frontend/.vite/
 .eslintcache
 .stylelintcache
 
+# Impeccable design-hook cache — per-session state with absolute paths.
+# The shared config (.impeccable/config.json) and the design sidecar
+# (.impeccable/design.json) ARE tracked; only the cache is local.
+**/.impeccable/hook.cache.json
+
 # ───────────────────────────────────────────
 # Electron
 # ───────────────────────────────────────────

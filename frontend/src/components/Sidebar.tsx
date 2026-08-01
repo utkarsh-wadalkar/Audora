@@ -25,7 +25,7 @@ export default function Sidebar() {
   return (
     <aside className="w-60 bg-gray-900 border-r border-gray-800 flex flex-col">
       <div className="p-6">
-        <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
+        <h1 className="wordmark text-[2rem] leading-[1.15]">
           Audora
         </h1>
         <p className="text-xs text-gray-500 mt-1">Music Downloader</p>

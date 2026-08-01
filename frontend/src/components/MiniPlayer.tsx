@@ -88,44 +88,70 @@ export default function MiniPlayer() {
   const progressPct = duration ? (position / duration) * 100 : 0;
 
   return (
-    <div className="h-16 bg-gray-900 border-t border-gray-800 flex items-center px-4 gap-4">
-      <div className="w-10 h-10 bg-gray-800 rounded-md flex items-center justify-center text-gray-500">
-        <Music size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">
-          {currentTrack?.title || 'Not Playing'}
-        </p>
-        <p className="text-xs text-gray-500 truncate">
-          {currentTrack?.artist || 'Select a track from Library'}
-        </p>
+    <div className="glass mx-6 mb-3 flex h-[72px] shrink-0 items-center gap-5 rounded-2xl px-4">
+      <div className="relative z-10 flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.04] text-gray-600">
+          {currentTrack?.id ? (
+            <img
+              key={currentTrack.id}
+              src={`${API_BASE}/library/art/${currentTrack.id}`}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={(event) => {
+                (event.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+              }}
+            />
+          ) : (
+            <Music size={18} />
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-gray-100">
+            {currentTrack?.title || 'Nothing playing'}
+          </p>
+          <p className="truncate text-xs text-gray-500">
+            {currentTrack?.artist || 'Pick a track from your library'}
+          </p>
+        </div>
       </div>
 
-      {/* Seek bar */}
-      <div className="flex flex-col items-center gap-1 w-64">
-        <div className="flex items-center gap-3">
-          <button className="text-gray-400 hover:text-white" disabled>
-            <SkipBack size={18} />
+      <div className="relative z-10 flex w-[26rem] flex-col items-center gap-1.5">
+        <div className="flex items-center gap-4">
+          <button
+            className="text-gray-500 transition-colors hover:text-gray-200 disabled:opacity-30"
+            disabled
+            aria-label="Previous track"
+          >
+            <SkipBack size={17} />
           </button>
           <button
             onClick={togglePlay}
-            className="w-8 h-8 bg-violet-600 rounded-full flex items-center justify-center text-white hover:bg-violet-500 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-95 disabled:opacity-40"
             disabled={!currentTrack}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
-            {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+            {isPlaying ? (
+              <Pause size={16} fill="currentColor" />
+            ) : (
+              <Play size={16} fill="currentColor" className="ml-0.5" />
+            )}
           </button>
-          <button className="text-gray-400 hover:text-white" disabled>
-            <SkipForward size={18} />
+          <button
+            className="text-gray-500 transition-colors hover:text-gray-200 disabled:opacity-30"
+            disabled
+            aria-label="Next track"
+          >
+            <SkipForward size={17} />
           </button>
         </div>
-        <div className="flex items-center gap-2 w-full text-[10px] text-gray-500">
+        <div className="flex w-full items-center gap-2.5 font-mono text-[10px] tabular-nums text-gray-500">
           <span>{formatDuration(position)}</span>
           <div
-            className="flex-1 h-1 bg-gray-700 rounded-full cursor-pointer"
+            className="group/seek relative h-1 flex-1 cursor-pointer rounded-full bg-white/[0.09]"
             onClick={seek}
           >
             <div
-              className="h-full bg-violet-500 rounded-full"
+              className="h-full rounded-full bg-audora-400 transition-[width] duration-150 ease-out"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -133,8 +159,8 @@ export default function MiniPlayer() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 w-32">
-        <Volume2 size={14} className="text-gray-500" />
+      <div className="relative z-10 flex w-32 items-center gap-2">
+        <Volume2 size={14} className="shrink-0 text-gray-500" />
         <input
           type="range"
           min={0}
@@ -142,7 +168,8 @@ export default function MiniPlayer() {
           step={0.01}
           value={volume}
           onChange={(e) => changeVolume(parseFloat(e.target.value))}
-          className="flex-1 accent-violet-500"
+          className="flex-1 accent-audora-400"
+          aria-label="Volume"
         />
       </div>
     </div>
