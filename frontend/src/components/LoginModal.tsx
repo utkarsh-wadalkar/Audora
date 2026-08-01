@@ -96,53 +96,60 @@ export default function LoginModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl p-6 relative">
+      <div className="glass relative w-full max-w-md rounded-3xl p-6">
         <button
           onClick={closeLogin}
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"
+          aria-label="Close sign-in"
+          className="absolute right-4 top-4 z-10 text-gray-500 transition-colors hover:text-gray-300"
         >
           <X size={18} />
         </button>
 
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center mb-3">
+        <div className="relative z-10 mb-6 flex flex-col items-center text-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4A8FD6] to-[#A78BC9]">
             <Music size={26} className="text-white" />
           </div>
-          <h2 className="text-xl font-bold">Sign in to Apple Music</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="text-xl font-semibold tracking-tight text-gray-100">
+            Sign in to Apple Music
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
             Your password is sent only to the local decryption service.
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 text-sm text-red-400 bg-red-950/50 border border-red-900 rounded-lg px-3 py-2">
+          <div className="relative z-10 mb-4 rounded-xl border border-rose-400/25 bg-rose-500/[0.08] px-3 py-2 text-sm text-rose-200">
             {error}
           </div>
         )}
 
         {(stage === 'credentials' || stage === 'awaiting') && (
-          <div className="space-y-3">
+          <div className="relative z-10 space-y-3">
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Apple ID (email)"
+              aria-label="Apple ID email"
+              autoComplete="username"
               disabled={stage === 'awaiting'}
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-violet-500 disabled:opacity-50"
+              className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none disabled:opacity-50"
             />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
+              aria-label="Apple ID password"
+              autoComplete="current-password"
               disabled={stage === 'awaiting'}
               onKeyDown={(e) => e.key === 'Enter' && submitCredentials()}
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-violet-500 disabled:opacity-50"
+              className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none disabled:opacity-50"
             />
             <button
               onClick={submitCredentials}
               disabled={busy}
-              className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg py-3 text-sm font-medium flex items-center justify-center gap-2"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
             >
               {busy && <Loader2 size={16} className="animate-spin" />}
               {stage === 'awaiting' ? status || 'Signing in...' : 'Sign In'}
@@ -151,8 +158,8 @@ export default function LoginModal() {
         )}
 
         {stage === '2fa' && (
-          <div className="space-y-3">
-            <p className="text-sm text-gray-400 text-center">{status}</p>
+          <div className="relative z-10 space-y-3">
+            <p className="text-center text-sm text-gray-400">{status}</p>
             <input
               id="twofa-input"
               inputMode="numeric"
@@ -161,12 +168,14 @@ export default function LoginModal() {
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && submit2fa()}
               placeholder="6-digit code"
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-center text-lg tracking-[0.5em] focus:outline-none focus:border-violet-500"
+              aria-label="Two-factor verification code"
+              autoComplete="one-time-code"
+              className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-center text-lg tracking-[0.5em] text-gray-100 placeholder:tracking-normal placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none"
             />
             <button
               onClick={submit2fa}
               disabled={busy}
-              className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg py-3 text-sm font-medium flex items-center justify-center gap-2"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
             >
               {busy && <Loader2 size={16} className="animate-spin" />}
               Verify
@@ -175,8 +184,8 @@ export default function LoginModal() {
         )}
 
         {stage === 'success' && (
-          <div className="text-center py-4">
-            <p className="text-green-400 text-lg font-medium">✔ {status}</p>
+          <div className="relative z-10 py-4 text-center">
+            <p className="text-lg font-medium text-emerald-300">✔ {status}</p>
           </div>
         )}
       </div>

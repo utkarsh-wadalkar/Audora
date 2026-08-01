@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-01T00:00:00Z",
+  "title": "Design System: Audora",
+  "extensions": {
+    "colorMeta": {
+      "audora": {
+        "role": "primary",
+        "displayName": "Audora Violet",
+        "canonical": "#7c5cbf",
+        "purpose": "The brand spine. Runs through every primary action, active state, focus ring, and console highlight. The only accent hue.",
+        "tonalRamp": [
+          "#120726",
+          "#1a0b2e",
+          "#2d1b4e",
+          "#432c7a",
+          "#5b3fa0",
+          "#7c5cbf",
+          "#9f8ad9",
+          "#c4b5f0"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Stage",
+        "canonical": "#0a0a0f",
+        "purpose": "The near-black, faintly blue solid backgrounds the glass floats over. Never flat — an ambient violet/fuchsia wash glows behind them.",
+        "tonalRamp": [
+          "#0a0a0f",
+          "#0e0e16",
+          "#12121a",
+          "#181822",
+          "#232332",
+          "#33334a",
+          "#5a5a78",
+          "#9a9ab5"
+        ]
+      },
+      "console": {
+        "role": "accent",
+        "displayName": "Receiver Console",
+        "canonical": "#2a2d3a",
+        "purpose": "Skeuomorphic material used ONLY on the download receiver: brushed-metal shell, recessed phosphor-green LCD, amber in-flight glow. Its power is its singularity — never spread elsewhere.",
+        "tonalRamp": [
+          "#0d1a14",
+          "#212431",
+          "#2a2d3a",
+          "#5ef0a8",
+          "#f0a85e"
+        ]
+      },
+      "emerald": {
+        "role": "success",
+        "displayName": "Done",
+        "canonical": "#34d399",
+        "purpose": "Semantic success only — completed steps, terminal 'done' lines, success headlines."
+      },
+      "rose": {
+        "role": "danger",
+        "displayName": "Failure / Stop",
+        "canonical": "#fb7185",
+        "purpose": "Semantic failure and interruption — error icons/lines, failure panels, the destructive Stop-download transport."
+      },
+      "amber": {
+        "role": "warning",
+        "displayName": "In-flight",
+        "canonical": "#fcd34d",
+        "purpose": "Semantic attention — the 'Extracting' phase and mid-process readouts."
+      },
+      "wordmarkGradient": {
+        "role": "brand",
+        "displayName": "Wordmark — Sand to Amber",
+        "canonical": "#e09e52",
+        "purpose": "APPROVED BRAND GRADIENT 1 of 2. linear-gradient(90deg, #cabeb0 0%, #e09e52 100%), clipped to text, paired only with Caveat 700, used only on the Audora wordmark. Intentionally outside the violet spine: the single warm object in a cool app, which is what lets a small lockup hold its own against the ambient violet wash. Text-only — never a fill.",
+        "tonalRamp": ["#cabeb0", "#e09e52"]
+      },
+      "logoSoundwave": {
+        "role": "brand",
+        "displayName": "Progress / Avatar — Blue to Lavender",
+        "canonical": "#4A8FD6",
+        "purpose": "APPROVED BRAND GRADIENT 2 of 2. #4A8FD6 → #A78BC9, matching the soundwave bars in the Audora logo. Used only as a solid fill: the setup progress-bar fill (to-r) and the sign-in avatar mark (to-br). Replaced an earlier violet→fuchsia fill that was never verified against the logo artwork. Fill-only — never text.",
+        "tonalRamp": ["#4A8FD6", "#A78BC9"]
+      }
+    },
+    "typographyMeta": {
+      "sans": {
+        "displayName": "Inter",
+        "purpose": "All interface text: labels, headings, body, buttons. Weight tops out at semibold (the wordmark is the only bold exception)."
+      },
+      "mono": {
+        "displayName": "JetBrains Mono",
+        "purpose": "Measurement and machine output only: the terminal, the receiver LCD, byte counts, timers, percentages, the source-link input. Signals 'this is a real value.'"
+      },
+      "eyebrow": {
+        "displayName": "Tracked Eyebrow",
+        "purpose": "Small all-caps labels above inputs and readouts: text-[10px]/[11px] uppercase, tracking 0.16em–0.2em. A signature that makes tiny labels feel engineered."
+      },
+      "wordmark": {
+        "displayName": "Caveat 700",
+        "purpose": "The wordmark face and nothing else — the one handwritten gesture in an app of machined surfaces; its scarcity is the point. Self-hosted latin-subset woff2 (not a CDN link) because the app runs offline over file://. Sized up (~1.6–2rem) with leading-[1.15] and no negative tracking, since Caveat reads optically smaller than Inter and tight tracking damages a connected script."
+      }
+    },
+    "shadows": [
+      { "name": "glass", "value": "0 8px 32px -8px rgba(0,0,0,0.6)", "purpose": "Floating glass panels — nav, cards, player bar." },
+      { "name": "lifted", "value": "0 16px 48px -12px rgba(0,0,0,0.7)", "purpose": "Surfaces that rise above their neighbors." },
+      { "name": "console", "value": "0 24px 64px -16px rgba(0,0,0,0.8)", "purpose": "The download receiver — heaviest object in the app; sits on the stage like a real device." },
+      { "name": "knob", "value": "0 6px 16px -4px rgba(0,0,0,0.75)", "purpose": "Tactile shadow under every primary button and transport control, so they read as physical." },
+      { "name": "readout-inset", "value": "inset 0 2px 10px rgba(0,0,0,0.75), inset 0 0 0 1px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.07)", "purpose": "Recessed depth for the LCD readout and input wells — carved into the panel, not floating." },
+      { "name": "glass-highlight", "value": "linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 38%, transparent 100%)", "purpose": "Top-edge light-catch overlay on every glass pane (::before). Content inside must be relative z-10 to sit above it." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The shared easing — a confident settle used on nearly every transition." },
+      { "name": "feedback", "value": "150ms", "purpose": "Tight feedback like seek-fill." },
+      { "name": "standard", "value": "300ms", "purpose": "The default hover/state transition duration." },
+      { "name": "rise-in", "value": "420ms", "purpose": "Panels appearing." },
+      { "name": "slide-in-left", "value": "520ms", "purpose": "The download receiver arriving on the Download page." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce collapses all animation/transition to ~0.01ms", "purpose": "Every motion decision must survive this toggle." }
+    ],
+    "backdropFilter": [
+      { "name": "glass", "value": "blur(24px) saturate(150%)", "purpose": "The frost. The saturate boost lets the ambient wash bleed through as color rather than gray." }
+    ],
+    "atmosphere": [
+      { "name": "ambient-wash", "value": "radial-gradient(60rem 40rem at 12% -10%, rgba(124,92,191,0.20), transparent 70%), radial-gradient(48rem 32rem at 96% 8%, rgba(192,84,178,0.14), transparent 68%), radial-gradient(52rem 44rem at 50% 108%, rgba(67,44,122,0.22), transparent 72%)", "purpose": "Fixed violet/fuchsia glow behind everything. Without something to refract, frosted glass reads as flat gray." }
+    ],
+    "breakpoints": [
+      { "name": "desktop", "value": "1400px", "note": "Fixed target canvas (1400x900)." },
+      { "name": "min", "value": "1200px", "note": "Minimum window (1200x800). No responsive reflow below this — Windows desktop app." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single most important action on a surface (Download, Sign In, Verify, Retry, Play). Carries the violet spine and a knob shadow.",
+      "html": "<button class=\"ds-btn-primary\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/></svg>Download</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: #7c5cbf; color: #fff; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 500; padding: 12px 16px; border: none; border-radius: 12px; box-shadow: 0 6px 16px -4px rgba(0,0,0,0.75); cursor: pointer; transition: background-color 300ms cubic-bezier(0.16,1,0.3,1), transform 300ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:hover { background: #9f8ad9; } .ds-btn-primary:active { transform: scale(0.99); } .ds-btn-primary:disabled { background: rgba(255,255,255,0.06); color: #6b7280; box-shadow: none; cursor: default; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Supporting actions (Add to queue, Copy diagnostic report). Glass-tinted and quiet; never competes with the primary.",
+      "html": "<button class=\"ds-btn-secondary\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 12H3\"/><path d=\"M16 6H3\"/><path d=\"M16 18H3\"/><path d=\"M18 9v6\"/><path d=\"M21 12h-6\"/></svg>Add to queue</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255,255,255,0.04); color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; padding: 10px 16px; border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; cursor: pointer; transition: background-color 300ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-secondary:hover { background: rgba(255,255,255,0.07); } .ds-btn-secondary:disabled { color: #4b5563; cursor: default; }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Stop or cancel a running job. Rose, and only for genuine interruption.",
+      "html": "<button class=\"ds-btn-destructive\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg>Stop download</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: rgba(244,63,94,0.9); color: #fff; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 500; padding: 12px 16px; border: none; border-radius: 12px; box-shadow: 0 6px 16px -4px rgba(0,0,0,0.75); cursor: pointer; transition: background-color 300ms cubic-bezier(0.16,1,0.3,1), transform 300ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-destructive:hover { background: #f43f5e; } .ds-btn-destructive:active { transform: scale(0.99); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Recessed dark well with a violet focus edge, paired with a small tracked uppercase label. Credential inputs are redaction-safe before reaching the UI.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Source link</span><input class=\"ds-input\" type=\"text\" placeholder=\"music.apple.com/…\" /></label>",
+      "css": ".ds-field { display: block; } .ds-field-label { display: block; margin-bottom: 6px; font-family: 'Inter', system-ui, sans-serif; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.16em; color: #9ca3af; } .ds-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.30); color: #f3f4f6; font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; font-size: 12px; padding: 10px 14px; border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; outline: none; transition: border-color 300ms cubic-bezier(0.16,1,0.3,1); } .ds-input::placeholder { color: #4b5563; } .ds-input:focus { border-color: rgba(124,92,191,0.6); }"
+    },
+    {
+      "name": "Nav Pill",
+      "kind": "nav",
+      "refersTo": "nav-pill-rail",
+      "description": "Centered glass pill rail holding the primary destinations; the active item gets a bright tint and an inset top highlight.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M12 2a10 10 0 0 1 10 10\"/></svg>Listen</a><a class=\"ds-nav-item\" href=\"#\">Library</a><a class=\"ds-nav-item\" href=\"#\">Queue</a></nav>",
+      "css": ".ds-nav { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border-radius: 9999px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 8px 32px -8px rgba(0,0,0,0.6); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); } .ds-nav-item { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 500; color: #9ca3af; text-decoration: none; transition: color 300ms cubic-bezier(0.16,1,0.3,1), background-color 300ms cubic-bezier(0.16,1,0.3,1); } .ds-nav-item:hover { color: #f3f4f6; } .ds-nav-active { background: rgba(255,255,255,0.10); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); }"
+    },
+    {
+      "name": "Wordmark",
+      "kind": "custom",
+      "refersTo": "wordmark",
+      "description": "The Audora lockup: Caveat 700 with the sand→amber gradient clipped to the letterforms. One recipe (.wordmark), three sites (top nav, About, unmounted Sidebar), nowhere else. Carries a forced-colors fallback because background-clipped transparent text vanishes in Windows High Contrast. In the nav it is paired with a tracked small-caps eyebrow — script beside engineered caps is the intended contrast.",
+      "html": "<span class=\"ds-wordmark\">Audora</span><span class=\"ds-wordmark-eyebrow\">Lossless</span>",
+      "css": ".ds-wordmark { font-family: 'Caveat', cursive; font-weight: 700; font-size: 28px; line-height: 1.15; padding-block: 0.05em; background-image: linear-gradient(90deg, #cabeb0 0%, #e09e52 100%); -webkit-background-clip: text; background-clip: text; color: transparent; } .ds-wordmark-eyebrow { margin-left: 8px; font-family: 'Inter', system-ui, sans-serif; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.18em; color: #6b7280; } @media (forced-colors: active) { .ds-wordmark { background-image: none; -webkit-background-clip: border-box; background-clip: border-box; color: CanvasText; } }"
+    },
+    {
+      "name": "Glass Card",
+      "kind": "card",
+      "refersTo": "card-glass",
+      "description": "The default container: frosted pane with a hairline edge and a top light-catch. Content sits above the highlight via relative z-10.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-inner\"><p class=\"ds-card-title\">Recently downloaded</p><p class=\"ds-card-sub\">12 tracks · ALAC lossless</p></div></div>",
+      "css": ".ds-card { position: relative; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 8px 32px -8px rgba(0,0,0,0.6); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); padding: 24px; overflow: hidden; } .ds-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 38%, transparent 100%); } .ds-card-inner { position: relative; z-index: 10; } .ds-card-title { margin: 0; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 600; color: #f3f4f6; } .ds-card-sub { margin: 4px 0 0; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #6b7280; }"
+    },
+    {
+      "name": "Console Readout (LCD)",
+      "kind": "custom",
+      "refersTo": "console-readout",
+      "description": "Signature skeuomorphic element: a recessed phosphor-green LCD inside the download receiver, showing real download state in monospace. Never fake values.",
+      "html": "<div class=\"ds-readout\"><p class=\"ds-readout-eyebrow\">Receiving</p><p class=\"ds-readout-title\">Blinding Lights</p><div class=\"ds-readout-meta\"><span>3 / 12</span><span>42%</span></div><div class=\"ds-readout-scale\"><div class=\"ds-readout-track\"></div><div class=\"ds-readout-fill\" style=\"width:42%\"></div></div></div>",
+      "css": ".ds-readout { background: #0d1a14; border-radius: 12px; padding: 14px 16px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.75), inset 0 0 0 1px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.07); font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; } .ds-readout-eyebrow { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(94,240,168,0.55); } .ds-readout-title { margin: 6px 0 0; font-size: 16px; color: #5ef0a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-readout-meta { display: flex; justify-content: space-between; margin-top: 12px; font-size: 10px; color: rgba(94,240,168,0.7); font-variant-numeric: tabular-nums; } .ds-readout-scale { position: relative; height: 6px; margin-top: 8px; } .ds-readout-track { position: absolute; inset: 0; border-radius: 9999px; background: rgba(0,0,0,0.5); } .ds-readout-fill { position: absolute; top: 0; left: 0; height: 6px; border-radius: 9999px; background: rgba(94,240,168,0.7); transition: width 500ms cubic-bezier(0.16,1,0.3,1); }"
+    },
+    {
+      "name": "Format Preset",
+      "kind": "chip",
+      "refersTo": "chip-preset",
+      "description": "Quality preset toggle on the receiver (ALAC / AAC / ATMOS). Selected state adopts the violet spine; the label is monospace because it names a real format.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-preset ds-preset-on\" aria-pressed=\"true\"><span class=\"ds-preset-label\">ALAC</span><span class=\"ds-preset-caption\">Lossless</span></button><button class=\"ds-preset\" aria-pressed=\"false\"><span class=\"ds-preset-label\">AAC</span><span class=\"ds-preset-caption\">Compact</span></button></div>",
+      "css": ".ds-preset { display: block; text-align: center; padding: 10px 8px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.4); background: rgba(0,0,0,0.25); color: #9ca3af; cursor: pointer; transition: background-color 300ms cubic-bezier(0.16,1,0.3,1), color 300ms cubic-bezier(0.16,1,0.3,1); } .ds-preset:hover { background: rgba(0,0,0,0.35); color: #e5e7eb; } .ds-preset-on { border-color: rgba(159,138,217,0.5); background: rgba(124,92,191,0.2); color: #f3f4f6; } .ds-preset-label { display: block; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11px; font-weight: 500; } .ds-preset-caption { display: block; margin-top: 2px; font-family: 'Inter', system-ui, sans-serif; font-size: 9px; color: #6b7280; }"
+    },
+    {
+      "name": "Terminal Line",
+      "kind": "custom",
+      "refersTo": "terminal",
+      "description": "The live log — a first-class trust surface. Monospace, semantic line colors, a violet PS> prompt. Proves the app is doing what it says.",
+      "html": "<div class=\"ds-term\"><div class=\"ds-term-line\"><span class=\"ds-term-prompt\">PS&gt;</span> pulling wrapper image…</div><div class=\"ds-term-line ds-term-run\">extracting layer 3 / 8</div><div class=\"ds-term-line ds-term-done\">✓ setup complete</div><div class=\"ds-term-line ds-term-err\">✗ registry unreachable — retrying</div></div>",
+      "css": ".ds-term { background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 12px; font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; font-size: 11px; line-height: 1.6; } .ds-term-line { color: #d1d5db; white-space: pre; } .ds-term-prompt { color: #c4b5f0; } .ds-term-run { color: #d1d5db; } .ds-term-done { color: #34d399; } .ds-term-err { color: #fb7185; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Instruments behind frosted glass",
+    "overview": "Audora is a listening-room console, not a web dashboard. Every surface is a pane of frosted glass floating over a deep violet wash — you sense depth and light passing through, never a flat gray card. The one exception is deliberate and load-bearing: the Download page is a physical receiver, a brushed-metal panel with a recessed LCD, because tuning in a download and watching it arrive should feel like operating a real device. This is an Operate system: the visitor's success is completing a task — signing in, tuning in a download, playing a track, recovering from a failed setup step. Scanability, consistency, and honest state reporting outrank expression. The brand does not shout; it lives in precise details: the violet spine that runs through every primary action, the top-edge highlight on every glass pane, the monospaced readouts that treat numbers as measurement. The one place the brand speaks in its own voice is the wordmark — Caveat 700 in a warm sand-to-amber gradient, the single handwritten and single warm object in an app otherwise built from cool machined surfaces. It earns that licence by being scarce: one word, three places, nowhere else.",
+    "keyCharacteristics": [
+      "Frosted glass over an ambient violet/fuchsia wash — depth via translucency, shadow, and top-edge light at once",
+      "A single violet brand spine (the audora ramp) through every primary action, active state, and focus ring",
+      "One deliberate skeuomorphic moment: the download receiver with its recessed phosphor-green LCD",
+      "Monospace for anything that is real measurement or machine output; Inter for everything else",
+      "A scarce script wordmark: Caveat 700 in a warm sand→amber gradient, the one handwritten and one warm object in a cool machined app",
+      "A first-class, always-visible terminal as a trust surface",
+      "Fixed Windows desktop canvas (1400x900, min 1200x800) — no responsive reflow"
+    ],
+    "rules": [
+      { "name": "The One Spine Rule", "body": "Violet (the audora ramp) is the only brand accent. Run it through every primary action, active state, and focus ring; never introduce a second competing accent hue.", "section": "colors" },
+      { "name": "The Two Gradients Rule", "body": "Exactly two multi-color gradients are approved, and they are not interchangeable. (1) The WORDMARK gradient: linear-gradient(90deg, #cabeb0 0%, #e09e52 100%), clipped to text, paired only with Caveat 700, used only on the Audora wordmark via the .wordmark class. It sits deliberately outside the violet spine — the one warm object in a cool app — and must not be harmonized back toward violet. (2) The PROGRESS/AVATAR gradient: #4A8FD6 → #A78BC9 (blue→lavender, matching the logo's soundwave bars), used only as a solid fill on the setup progress bar and the sign-in avatar mark. Never swap them: sand→amber is text-only, blue→lavender is fill-only. Never add a third.", "section": "colors" },
+      { "name": "The Scarce Script Rule", "body": "Caveat 700 is loaded for one word. It appears only on the Audora wordmark lockup (top nav, About, and the unmounted Sidebar) — never on headings, labels, body copy, numbers, or prose that merely contains the name. It is self-hosted (frontend/src/assets/fonts/caveat-700.woff2) rather than loaded from a CDN, because this is an offline-capable Electron app over file:// and a network fallback would silently break the lockup.", "section": "typography" },
+      { "name": "The Real Value Rule", "body": "Use font-mono + tabular-nums for anything that is a real, updating value; never fabricate progress, frequencies, or state — every readout reflects actual data.", "section": "typography" },
+      { "name": "The Glass Highlight Rule", "body": "Every .glass pane carries a ::before top-edge highlight that sits above the panel background, so interactive content inside must be wrapped relative z-10 or the highlight will cover it.", "section": "elevation" },
+      { "name": "The Singular Skeuomorph Rule", "body": "The receiver's brushed metal and phosphor-green LCD live only on the Download page. Its impact is its singularity — never spread the material to other surfaces.", "section": "elevation" },
+      { "name": "The Single Recovery Path Rule", "body": "When a step fails, present exactly one primary recovery button (Retry). Never two competing recovery actions, never a dead-end error, and never an instruction to open a terminal or run a command.", "section": "components" }
+    ],
+    "dos": [
+      "Do compose the .glass utility for every translucent surface; keep the recipe in one place.",
+      "Do wrap content inside .glass in relative z-10 so the top-edge highlight stays behind it.",
+      "Do keep the ambient wash behind everything — it is what makes the glass read as glass.",
+      "Do run the violet spine (audora.500/400) through every primary action, active state, and focus ring.",
+      "Do use font-mono + tabular-nums for anything that is a real, updating value.",
+      "Do report state with the fixed semantic colors: emerald = done, rose = failure, amber = in-flight.",
+      "Do keep the terminal a first-class, styled instrument on the surfaces that have one.",
+      "Do enforce the single-recovery-path rule on every failure state.",
+      "Do design for exactly 1400x900 (min 1200x800) — one confident desktop canvas.",
+      "Do render the wordmark only through the .wordmark class, so the face and gradient stay identical everywhere.",
+      "Do self-host brand fonts — a CDN link would silently drop the lockup to a fallback face whenever the user is offline."
+    ],
+    "donts": [
+      "Don't paint flat bg-gray-900 cards or raw gray-*/violet-* surfaces — that is the pre-redesign look and the anti-reference.",
+      "Don't introduce a second brand accent hue; violet is the only spine.",
+      "Don't recolor, re-letter, or re-face the wordmark: it is Caveat 700 with the #cabeb0 → #e09e52 gradient, always via the .wordmark class.",
+      "Don't set Caveat on anything that isn't the wordmark, and don't apply .wordmark to prose that merely contains the word 'Audora'.",
+      "Don't swap the two brand gradients — sand→amber is text-only (wordmark), blue→lavender is fill-only (progress bar, avatar) — and don't add a third.",
+      "Don't spread the skeuomorphic material (brushed metal, phosphor green) beyond the download receiver.",
+      "Don't put a mid-gray on a saturated color fill; use white or a near-white tint.",
+      "Don't show two competing recovery buttons, a dead-end error, or any 'open a terminal / run this command' instruction.",
+      "Don't render anything that could contain an Apple ID or password unredacted.",
+      "Don't add mobile breakpoints, responsive reflow, or copy that implies cross-platform or web deployment — this is a Windows desktop app.",
+      "Don't drop the upstream credit to zhaarey/apple-music-downloader and WorldObservationLog/wrapper.",
+      "Don't animate without honoring prefers-reduced-motion."
+    ]
+  }
+}

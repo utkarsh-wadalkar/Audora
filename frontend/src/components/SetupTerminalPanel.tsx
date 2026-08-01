@@ -39,10 +39,10 @@ export interface SetupTerminalPanelProps {
   className?: string;
 }
 
-/** Per-status line colour, reusing the palette the wizard already uses. */
+/** Per-status line colour, reusing the palette from the glass redesign. */
 function lineColor(status: SetupStepStatus): string {
-  if (status === 'error') return 'text-red-400';
-  if (status === 'done') return 'text-green-400';
+  if (status === 'error') return 'text-rose-400';
+  if (status === 'done') return 'text-emerald-400';
   if (status === 'running') return 'text-gray-300';
   return 'text-gray-600';
 }
@@ -71,14 +71,14 @@ export default function SetupTerminalPanel({
   return (
     <div
       className={
-        'flex flex-col overflow-hidden rounded-2xl border border-gray-800 ' +
-        'bg-gray-900 shadow-2xl ' +
+        'flex flex-col overflow-hidden rounded-2xl border border-white/[0.07] ' +
+        'bg-black/25 shadow-glass ' +
         className
       }
     >
       {/* Title bar — mimics a console window without pretending to be one. */}
-      <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-2.5">
-        <Terminal size={14} className="text-violet-400" />
+      <div className="flex items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
+        <Terminal size={14} className="text-audora-300" />
         <span className="text-xs font-medium text-gray-300">Setup log</span>
         {!autoScroll && (
           <span className="ml-auto text-[10px] text-gray-500">
@@ -94,7 +94,7 @@ export default function SetupTerminalPanel({
       >
         {lines.length === 0 ? (
           <div className="text-gray-600">
-            <span className="text-violet-400">PS&gt;</span> waiting for setup to
+            <span className="text-audora-300">PS&gt;</span> waiting for setup to
             start
             <span className="ml-0.5 animate-pulse text-gray-400">_</span>
           </div>
@@ -103,7 +103,7 @@ export default function SetupTerminalPanel({
             {lines.map((line, index) => (
               <div key={line.id} className="flex gap-2 whitespace-pre-wrap break-words">
                 <span className="shrink-0 text-gray-600">{line.timestamp}</span>
-                <span className="shrink-0 text-violet-400">PS&gt;</span>
+                <span className="shrink-0 text-audora-300">PS&gt;</span>
                 <span className={lineColor(line.status)}>
                   <span className="text-gray-600">[{line.step}]</span> {line.text}
                   {/* Blinking cursor rides the newest line only. */}

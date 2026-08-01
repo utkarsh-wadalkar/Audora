@@ -1,40 +1,57 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { api } from '../api/client';
+import LogTerminal, { type LogLine } from '../components/LogTerminal';
+
+const LEVEL_FILTERS = ['ALL', 'INFO', 'WARNING', 'ERROR'];
+
+/** Bounded so a long session cannot grow the buffer without limit. */
+const MAX_LOG_ENTRIES = 500;
 
 export default function Logs() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [entries, setEntries] = useState<any[]>([]);
   const [filter, setFilter] = useState('ALL');
-  const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
 
   // Seed with recent logs, then stream live.
   useEffect(() => {
     api
       .get('/logs')
-      .then((r) => setLogs(r.data.data || []))
+      .then((response) => setEntries(response.data.data || []))
       .catch(() => {});
   }, []);
 
   useWebSocket('/ws/logs', {
     onMessage: (data) => {
       if (data?.type === 'log') {
-        setLogs((prev) => [...prev.slice(-500), data]);
+        setEntries((previous) => [...previous.slice(-(MAX_LOG_ENTRIES - 1)), data]);
       }
     },
   });
 
-  useEffect(() => {
-    if (autoScroll) endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, autoScroll]);
+  const filtered = useMemo(
+    () => (filter === 'ALL' ? entries : entries.filter((entry) => entry.level === filter)),
+    [entries, filter]
+  );
 
-  const filtered = filter === 'ALL' ? logs : logs.filter((l) => l.level === filter);
+  // The backend already supplies a timestamp per entry, so index is a stable
+  // enough key for an append-only, bounded buffer.
+  const lines: LogLine[] = useMemo(
+    () =>
+      filtered.map((entry, index) => ({
+        id: index,
+        timestamp: entry.timestamp ?? '',
+        level: typeof entry.level === 'string' ? entry.level.toLowerCase() : 'info',
+        prefix: entry.level,
+        text: String(entry.message ?? ''),
+      })),
+    [filtered]
+  );
 
   const copyAll = () => {
     const text = filtered
-      .map((l) => `[${l.timestamp}] [${l.level}] ${l.message}`)
+      .map((entry) => `[${entry.timestamp}] [${entry.level}] ${entry.message}`)
       .join('\n');
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -43,55 +60,47 @@ export default function Logs() {
   };
 
   return (
-    <div className="space-y-4 h-full flex flex-col">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Logs</h2>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-gray-400">
-            <input
-              type="checkbox"
-              checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
-              className="accent-violet-500"
-            />
-            Auto-scroll
-          </label>
+    <div className="flex h-full min-h-0 animate-rise-in flex-col gap-5 pt-2">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Logs</h1>
+        <span className="font-mono text-xs tabular-nums text-gray-500">
+          {filtered.length} lines
+        </span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex gap-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] p-0.5">
+            {LEVEL_FILTERS.map((level) => (
+              <button
+                key={level}
+                onClick={() => setFilter(level)}
+                aria-pressed={filter === level}
+                className={`rounded-full px-3 py-1.5 text-[11px] transition-colors duration-300 ease-out ${
+                  filter === level
+                    ? 'bg-audora-500/22 text-audora-100'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {level === 'ALL' ? 'All' : level}
+              </button>
+            ))}
+          </div>
           <button
             onClick={copyAll}
-            className="text-sm bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5"
+            disabled={filtered.length === 0}
+            className="flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.05] px-3.5 py-2 text-xs text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09] disabled:text-gray-600"
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? <Check size={13} /> : <Copy size={13} />}
             {copied ? 'Copied' : 'Copy'}
           </button>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm"
-          >
-            <option value="ALL">All Levels</option>
-            <option value="INFO">INFO</option>
-            <option value="WARNING">WARNING</option>
-            <option value="ERROR">ERROR</option>
-          </select>
         </div>
       </div>
-      <div className="flex-1 bg-gray-950 rounded-lg border border-gray-800 p-4 font-mono text-xs overflow-y-auto scrollbar-thin space-y-1">
-        {filtered.map((log, i) => (
-          <div
-            key={i}
-            className={
-              log.level === 'ERROR'
-                ? 'text-red-400'
-                : log.level === 'WARNING'
-                ? 'text-yellow-400'
-                : 'text-gray-400'
-            }
-          >
-            <span className="text-gray-600">[{log.timestamp}]</span> [{log.level}] {log.message}
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
+
+      <LogTerminal
+        title="Application log"
+        lines={lines}
+        idleHint="no log output yet"
+        className="min-h-0 flex-1"
+      />
     </div>
   );
 }

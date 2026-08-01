@@ -1,76 +1,298 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Music, HardDrive, Clock } from 'lucide-react';
-import { api } from '../api/client';
-import { formatSize } from '../lib/format';
+import { Music, Play, Search, RotateCw, Heart } from 'lucide-react';
+import { api, API_BASE } from '../api/client';
+import { useAppStore } from '../store/useAppStore';
+import type { Track } from '../store/useAppStore';
+import { formatDuration, formatSize } from '../lib/format';
 
-export default function Home() {
-  const [stats, setStats] = useState({ tracks: 0, size: '0 MB' });
-  const [recent, setRecent] = useState<any[]>([]);
+/** Square album art with a graceful fallback when a track has no embedded image. */
+function AlbumArt({ trackId, size = 18 }: { trackId?: number; size?: number }) {
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    api.get('/library').then((r) => {
-      const tracks = r.data.data || [];
-      const size = tracks.reduce((acc: number, t: any) => acc + (t.file_size || 0), 0);
-      setStats({ tracks: tracks.length, size: formatSize(size) });
-    }).catch(() => {});
-    api.get('/history').then((r) => {
-      setRecent((r.data.data || []).slice(0, 5));
-    }).catch(() => {});
-  }, []);
+  if (!trackId || failed) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-white/[0.04] text-gray-600">
+        <Music size={size} />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Dashboard</h2>
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={Music} label="Total Tracks" value={stats.tracks.toString()} />
-        <StatCard icon={HardDrive} label="Library Size" value={stats.size} />
-        <StatCard icon={Clock} label="Recent Downloads" value={recent.length.toString()} />
+    <img
+      src={`${API_BASE}/library/art/${trackId}`}
+      alt=""
+      loading="lazy"
+      className="h-full w-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+export default function Home() {
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [downloadJobs, setDownloadJobs] = useState<any[]>([]);
+  const [query, setQuery] = useState('');
+
+  const setCurrentTrack = useAppStore((s) => s.setCurrentTrack);
+  const currentTrack = useAppStore((s) => s.currentTrack);
+
+  useEffect(() => {
+    api
+      .get('/library')
+      .then((response) => setTracks(response.data.data || []))
+      .catch(() => {});
+    api
+      .get('/history')
+      .then((response) => setDownloadJobs((response.data.data || []).slice(0, 6)))
+      .catch(() => {});
+  }, []);
+
+  const librarySize = useMemo(
+    () => tracks.reduce((total, track) => total + (track.file_size || 0), 0),
+    [tracks]
+  );
+
+  // One album card per distinct album, represented by its first track.
+  const albums = useMemo(() => {
+    const byAlbum = new Map<string, Track>();
+    tracks.forEach((track) => {
+      const key = `${track.artist}::${track.album}`;
+      if (!byAlbum.has(key)) byAlbum.set(key, track);
+    });
+    return Array.from(byAlbum.values());
+  }, [tracks]);
+
+  const matches = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return [];
+    return tracks
+      .filter((track) =>
+        [track.title, track.artist, track.album]
+          .some((field) => (field || '').toLowerCase().includes(needle))
+      )
+      .slice(0, 8);
+  }, [tracks, query]);
+
+  // "Next up" is the tail of the library after whatever is playing — a real
+  // continuation, not a shuffled sample.
+  const nextUp = useMemo(() => {
+    const playingIndex = currentTrack
+      ? tracks.findIndex((track) => track.id === currentTrack.id)
+      : -1;
+    return tracks.slice(playingIndex + 1, playingIndex + 7);
+  }, [tracks, currentTrack]);
+
+  const retryJob = async (jobId: number) => {
+    await api.post(`/history/${jobId}/retry`);
+  };
+
+  return (
+    <div className="animate-rise-in space-y-10 pt-2">
+      <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3">
+        <Search size={16} className="relative z-10 shrink-0 text-gray-500" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search your library by title, artist or album"
+          className="relative z-10 w-full bg-transparent text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none"
+        />
+        {tracks.length > 0 && (
+          <span className="relative z-10 shrink-0 font-mono text-[11px] tabular-nums text-gray-500">
+            {tracks.length} tracks · {formatSize(librarySize)}
+          </span>
+        )}
       </div>
-      <div>
-        <h3 className="text-lg font-semibold mb-3">Recent Downloads</h3>
-        {recent.length === 0 ? (
-          <p className="text-gray-500">
-            No downloads yet.{' '}
-            <Link to="/download" className="text-violet-400 underline">
-              Start one now
-            </Link>
-            .
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {recent.map((item) => (
-              <div
-                key={item.id}
-                className="bg-gray-900 rounded-lg p-3 flex justify-between items-center"
+
+      {matches.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-400">Search results</h2>
+          <div className="glass overflow-hidden rounded-2xl">
+            {matches.map((track, index) => (
+              <button
+                key={track.file_path}
+                onClick={() => setCurrentTrack(track)}
+                className={`relative z-10 flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
+                  index > 0 ? 'border-t border-white/[0.05]' : ''
+                }`}
               >
-                <span className="truncate">{item.title || item.url}</span>
-                <span
-                  className={`text-xs px-2 py-1 rounded ${
-                    item.status === 'completed'
-                      ? 'bg-green-900 text-green-300'
-                      : 'bg-red-900 text-red-300'
-                  }`}
-                >
-                  {item.status}
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                  <AlbumArt trackId={track.id} size={14} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-gray-100">{track.title}</p>
+                  <p className="truncate text-xs text-gray-500">{track.artist}</p>
+                </div>
+                <span className="font-mono text-[11px] tabular-nums text-gray-500">
+                  {formatDuration(track.duration)}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
-        )}
+        </section>
+      )}
+
+      {albums.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold tracking-tight text-gray-100">
+              Your albums
+            </h2>
+            <Link
+              to="/library"
+              className="text-xs text-gray-500 transition-colors hover:text-audora-300"
+            >
+              Open library
+            </Link>
+          </div>
+          <div className="scrollbar-none rail-fade -mx-2 flex gap-4 overflow-x-auto px-2 pb-2">
+            {albums.map((album) => (
+              <button
+                key={`${album.artist}::${album.album}`}
+                onClick={() => setCurrentTrack(album)}
+                className="group w-44 shrink-0 text-left"
+              >
+                <div className="relative mb-3 aspect-square overflow-hidden rounded-xl border border-white/[0.08] shadow-glass">
+                  <AlbumArt trackId={album.id} size={28} />
+                  <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob">
+                      <Play size={15} fill="currentColor" className="ml-0.5" />
+                    </span>
+                  </div>
+                </div>
+                <p className="truncate text-sm font-medium text-gray-100">
+                  {album.album || 'Unknown album'}
+                </p>
+                <p className="truncate text-xs text-gray-500">{album.artist}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="grid grid-cols-2 gap-6">
+        <section className="space-y-4">
+          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-gray-100">
+            Next up
+          </h2>
+          {nextUp.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              {tracks.length === 0 ? (
+                <>
+                  Nothing here yet.{' '}
+                  <Link to="/download" className="text-audora-300 hover:text-audora-200">
+                    Download an album
+                  </Link>{' '}
+                  to get started.
+                </>
+              ) : (
+                'End of your library. Pick another track to keep going.'
+              )}
+            </p>
+          ) : (
+            <div className="glass overflow-hidden rounded-2xl">
+              {nextUp.map((track, index) => (
+                <div
+                  key={track.file_path}
+                  className={`group relative z-10 flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-white/[0.05] ${
+                    index > 0 ? 'border-t border-white/[0.05]' : ''
+                  }`}
+                >
+                  <button
+                    onClick={() => setCurrentTrack(track)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                      <AlbumArt trackId={track.id} size={14} />
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
+                        <Play size={13} fill="currentColor" className="text-white" />
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-gray-100">{track.title}</p>
+                      <p className="truncate text-xs text-gray-500">
+                        {track.artist}
+                        {track.album ? ` — ${track.album}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                  <span className="font-mono text-[11px] tabular-nums text-gray-500">
+                    {formatDuration(track.duration)}
+                  </span>
+                  <Heart
+                    size={14}
+                    className="shrink-0 text-gray-600 opacity-0 transition-opacity group-hover:opacity-100"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold tracking-tight text-gray-100">History</h2>
+            <Link
+              to="/history"
+              className="text-xs text-gray-500 transition-colors hover:text-audora-300"
+            >
+              See all
+            </Link>
+          </div>
+          {downloadJobs.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No downloads yet.{' '}
+              <Link to="/download" className="text-audora-300 hover:text-audora-200">
+                Start one
+              </Link>
+              .
+            </p>
+          ) : (
+            <div className="glass overflow-hidden rounded-2xl">
+              {downloadJobs.map((job, index) => (
+                <div
+                  key={job.id}
+                  className={`relative z-10 flex items-center gap-3 px-4 py-2.5 ${
+                    index > 0 ? 'border-t border-white/[0.05]' : ''
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-gray-100">{job.title || job.url}</p>
+                    <p className="text-xs text-gray-500">
+                      {job.track_count || 0} tracks
+                      {job.error_count ? ` · ${job.error_count} failed` : ''}
+                    </p>
+                  </div>
+                  <StatusPill status={job.status} />
+                  <button
+                    onClick={() => retryJob(job.id)}
+                    title="Download again"
+                    aria-label="Download again"
+                    className="shrink-0 rounded text-gray-600 transition-colors hover:text-audora-300"
+                  >
+                    <RotateCw size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
 }
 
-function StatCard({ icon: Icon, label, value }: any) {
+function StatusPill({ status }: { status?: string }) {
+  const tone =
+    status === 'completed'
+      ? 'bg-emerald-500/12 text-emerald-300'
+      : status === 'cancelled'
+      ? 'bg-white/[0.06] text-gray-400'
+      : 'bg-rose-500/12 text-rose-300';
+
   return (
-    <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
-      <div className="flex items-center gap-3 mb-2">
-        <Icon size={20} className="text-violet-400" />
-        <span className="text-sm text-gray-400">{label}</span>
-      </div>
-      <p className="text-2xl font-bold">{value}</p>
-    </div>
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}>
+      {status || 'unknown'}
+    </span>
   );
 }
