@@ -3,6 +3,7 @@
 All methods swallow ``DockerException`` and return safe defaults / log a
 user-friendly message so the API never 500s just because Docker is down.
 """
+import os
 import shutil
 import socket
 import subprocess
@@ -27,11 +28,165 @@ logger = get_logger("docker")
 # Windows Docker Desktop engine pipe.
 _WINDOWS_PIPE = "npipe:////./pipe/docker_engine"
 
-# Common Docker Desktop install locations to try when auto-starting.
-_DOCKER_DESKTOP_PATHS = [
-    r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
-    r"C:\Program Files\Docker\Docker\resources\bin\com.docker.cli.exe",
-]
+# --- Docker Desktop discovery ----------------------------------------------
+#
+# Audora ships publicly, so it cannot assume where Docker Desktop lives. Per
+# Docker's own docs there are three genuinely different layouts:
+#
+#   * per-user (the installer's DEFAULT):  %LOCALAPPDATA%\Programs\DockerDesktop
+#     with registry state under HKCU, and NO com.docker.service.
+#   * all-users:                           C:\Program Files\Docker\Docker
+#     with registry state under HKLM.
+#   * anywhere at all: the installer supports --installation-dir=<path>, e.g.
+#     D:\Docker\Docker.
+#
+# That third case means no hardcoded list can ever be complete, so discovery is
+# ordered most-reliable-first and only falls back to guesses:
+#
+#   1. Registry  — the uninstall key's InstallLocation, probed in HKCU and HKLM
+#                  (and the 32-bit view), which is authoritative even for a
+#                  relocated install.
+#   2. PATH      — locate docker.exe and derive the install root from it.
+#   3. Hardcoded — the two documented defaults, as a last resort.
+#
+# Every step returns only paths that actually exist on disk, so a stale
+# registry entry left behind by an uninstall cannot produce a dead path.
+
+# The executable that starts Docker Desktop (and thus the engine).
+_DOCKER_DESKTOP_EXE = "Docker Desktop.exe"
+
+# Uninstall keys Docker Desktop registers under. Per-user installs write to
+# HKCU, all-users to HKLM; the subkey is the plain product name, not a GUID.
+_UNINSTALL_SUBKEYS = (
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop",
+    r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop",
+)
+
+# Vendor key some versions use to record the install root.
+_VENDOR_SUBKEYS = (
+    r"SOFTWARE\Docker Inc.\Docker Desktop",
+    r"SOFTWARE\Docker Inc.\Docker\1.0",
+)
+
+
+def _exe_in(root: str) -> Optional[str]:
+    """Return ``root``'s Docker Desktop executable if it exists on disk."""
+    if not root:
+        return None
+    candidate = os.path.join(root.strip().strip('"'), _DOCKER_DESKTOP_EXE)
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _registry_install_roots() -> Iterator[str]:
+    """Yield install roots recorded in the registry (HKCU and HKLM).
+
+    Authoritative even when the user installed to a custom directory via
+    ``--installation-dir``. Never raises: a missing key, a missing value, or
+    no winreg module at all simply yields nothing.
+    """
+    try:
+        import winreg
+    except ImportError:  # not Windows
+        return
+
+    hives = (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE)
+    subkeys = _UNINSTALL_SUBKEYS + _VENDOR_SUBKEYS
+    # InstallLocation is the documented install root. AppPath is what the
+    # vendor key uses. DisplayIcon is deliberately NOT read: on a per-user
+    # install it points at "Docker Desktop Installer.exe", so launching it
+    # would run the installer rather than the app.
+    value_names = ("InstallLocation", "AppPath", "InstallPath")
+
+    for hive in hives:
+        for subkey in subkeys:
+            try:
+                with winreg.OpenKey(hive, subkey) as key:
+                    for value_name in value_names:
+                        try:
+                            value, _kind = winreg.QueryValueEx(key, value_name)
+                        except OSError:
+                            continue
+                        if isinstance(value, str) and value.strip():
+                            yield value
+            except OSError:
+                # Key absent in this hive/view — expected for the other mode.
+                continue
+
+
+def _path_install_roots() -> Iterator[str]:
+    """Yield install roots derived from ``docker.exe`` on PATH.
+
+    Docker Desktop puts its CLI at ``<root>\\resources\\bin\\docker.exe``, so the
+    root is three levels up. Each candidate is verified by checking that the GUI
+    executable is actually there, which also rejects an unrelated docker.exe
+    (a Chocolatey/Scoop shim, or a plain Docker CE install with no Desktop).
+    """
+    for tool in ("docker", "com.docker.cli"):
+        located = shutil.which(tool)
+        if not located:
+            continue
+        current = os.path.dirname(os.path.abspath(located))
+        # Walk up a few levels rather than assuming a fixed depth, so a layout
+        # change between versions does not break discovery.
+        for _ in range(4):
+            yield current
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+
+def _default_install_roots() -> Iterator[str]:
+    """Yield the two documented default roots, as a last resort."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        yield os.path.join(local_app_data, "Programs", "DockerDesktop")
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    yield os.path.join(program_files, "Docker", "Docker")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)")
+    if program_files_x86:
+        yield os.path.join(program_files_x86, "Docker", "Docker")
+
+
+def find_docker_desktop() -> Optional[str]:
+    """Locate ``Docker Desktop.exe``, or None if it cannot be found.
+
+    Tries the registry, then PATH, then the documented defaults, returning the
+    first candidate that exists on disk.
+    """
+    for source, roots in (
+        ("registry", _registry_install_roots),
+        ("PATH", _path_install_roots),
+        ("default location", _default_install_roots),
+    ):
+        try:
+            for root in roots():
+                found = _exe_in(root)
+                if found:
+                    logger.info(f"Found Docker Desktop via {source}: {found}")
+                    return found
+        except Exception as discovery_error:  # noqa: BLE001 - never block startup
+            logger.warning(f"Docker Desktop {source} discovery failed: {discovery_error}")
+    logger.warning("Could not locate Docker Desktop in the registry, on PATH, or at a default location")
+    return None
+
+
+def _docker_desktop_paths() -> list:
+    """Every candidate executable that exists on disk, best first.
+
+    Kept as a list (rather than a single path) so ``start_docker_desktop`` can
+    still try the next candidate if launching one fails.
+    """
+    found: list = []
+    for roots in (_registry_install_roots, _path_install_roots, _default_install_roots):
+        try:
+            for root in roots():
+                candidate = _exe_in(root)
+                if candidate and candidate not in found:
+                    found.append(candidate)
+        except Exception:  # noqa: BLE001 - discovery must never raise
+            continue
+    return found
 
 
 class DockerManager:
@@ -81,13 +236,17 @@ class DockerManager:
         if self.is_docker_running():
             return True
         launched = False
-        for path in _DOCKER_DESKTOP_PATHS:
+        # Discovered per call rather than at import time: the user may install
+        # Docker Desktop while Audora is already running, and this is the exact
+        # path the "Start Docker & Retry" button takes after they do.
+        for path in _docker_desktop_paths():
             try:
                 subprocess.Popen([path], close_fds=True)
                 launched = True
                 logger.info(f"Launched Docker Desktop from {path}")
                 break
-            except OSError:
+            except OSError as launch_error:
+                logger.warning(f"Could not launch {path}: {launch_error}")
                 continue
         if not launched:
             logger.error("Could not find Docker Desktop executable")

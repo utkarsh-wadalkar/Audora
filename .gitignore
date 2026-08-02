@@ -156,6 +156,10 @@ MusicDownload/
 # Settings with personal paths
 backend/data/settings.json
 
+# Generated downloader config — rewritten from downloader_config.py before
+# every download, so it is runtime state, not source.
+backend/data/downloader/
+
 # Docker wrapper binary (large binary, downloaded separately)
 wrapper/wrapper
 wrapper/*.tar.gz
