@@ -12,6 +12,7 @@ import asyncio
 import os
 from typing import Callable, Dict, List, Optional
 
+import downloader_config
 from docker_manager import docker_mgr
 from settings import get_settings
 from logger import get_logger
@@ -22,6 +23,11 @@ logger = get_logger("download")
 
 DOWNLOADER_IMAGE = "ghcr.io/zhaarey/apple-music-downloader"
 DOWNLOADER_CONTAINER_NAME = "audora-downloader"
+
+# Where the generated config.yaml is kept on the host, next to the backend's
+# other runtime state (mirrors settings.py's data/ convention).
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.join(_BASE_DIR, "data", "downloader")
 
 
 class DownloadManager:
@@ -116,17 +122,39 @@ class DownloadManager:
         except OSError:
             pass
 
+        # The published image ships a malformed /app/config.yaml and no
+        # config.yaml.example to copy from, so Audora supplies its own and
+        # mounts it over the broken one. Regenerated every run because the
+        # quality ceilings live only in this file and the preset can change.
+        try:
+            host_config_path = downloader_config.write_config(CONFIG_DIR, fmt)
+        except OSError as config_error:
+            logger.error(f"Cannot write downloader config: {config_error}")
+            return False
+
         docker_downloads = windows_to_docker_path(downloads_path)
+        docker_config = windows_to_docker_path(host_config_path)
         config = {
             "image": DOWNLOADER_IMAGE,
             "name": DOWNLOADER_CONTAINER_NAME,
             "command": self._build_command(url, fmt),
-            "volumes": {docker_downloads: {"bind": "/downloads", "mode": "rw"}},
+            "volumes": {
+                docker_downloads: {"bind": "/downloads", "mode": "rw"},
+                # Read-only: the container never rewrites its config, and
+                # Audora regenerates it before every run.
+                docker_config: {
+                    "bind": downloader_config.CONTAINER_CONFIG_PATH,
+                    "mode": "ro",
+                },
+            },
             "network_mode": "host",
             "stdin_open": True,   # piped stdin prevents interactive retry loops
             "tty": False,
             "detach": True,
-            "working_dir": "/downloads",
+            # No working_dir override: the binary opens "config.yaml" by
+            # relative path, so it must run from the image's own WORKDIR
+            # (/app). Pointing this at /downloads is what produced
+            # "open config.yaml: no such file or directory".
         }
 
         container = docker_mgr.start_container(config)
