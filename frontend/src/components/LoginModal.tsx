@@ -79,15 +79,29 @@ export default function LoginModal() {
   };
 
   const submit2fa = async () => {
-    if (code.trim().length < 4) {
-      setError('Enter the code sent to your device.');
+    // Validate before sending: the wrapper consumes the code file the instant
+    // it appears, so an empty or partial submission burns the user's single
+    // attempt and drops them back to the start of the sign-in.
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      setError('Verification code cannot be empty.');
+      return;
+    }
+    if (trimmedCode.length < 6) {
+      setError('Enter all 6 digits of your verification code.');
       return;
     }
     setError('');
     setBusy(true);
     setStatus('Verifying code...');
     try {
-      await api.post('/auth/2fa', { code: code.trim() });
+      const res = await api.post('/auth/2fa', { code: trimmedCode });
+      // The backend refuses to write a malformed code, so say so rather than
+      // spinning on a code that was never handed to the wrapper.
+      if (res.data?.success === false) {
+        setError('That code was not accepted. Please check it and try again.');
+        setBusy(false);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to submit code');
       setBusy(false);
@@ -165,20 +179,25 @@ export default function LoginModal() {
               inputMode="numeric"
               maxLength={6}
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              onChange={(e) => {
+                setCode(e.target.value.replace(/\D/g, ''));
+                // Clear a stale "cannot be empty" as soon as they type.
+                if (error) setError('');
+              }}
               onKeyDown={(e) => e.key === 'Enter' && submit2fa()}
               placeholder="6-digit code"
               aria-label="Two-factor verification code"
+              aria-invalid={Boolean(error)}
               autoComplete="one-time-code"
               className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-center text-lg tracking-[0.5em] text-gray-100 placeholder:tracking-normal placeholder:text-gray-500 focus:border-audora-500/60 focus:outline-none"
             />
             <button
               onClick={submit2fa}
-              disabled={busy}
+              disabled={busy || code.trim().length < 6}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
             >
               {busy && <Loader2 size={16} className="animate-spin" />}
-              Verify
+              {busy ? 'Verifying...' : 'Verify'}
             </button>
           </div>
         )}
