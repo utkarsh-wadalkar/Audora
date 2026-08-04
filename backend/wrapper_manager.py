@@ -35,6 +35,11 @@ WRAPPER_ACCOUNT_PORT = 30020
 # so it must not add perceptible latency.
 _PROBE_TIMEOUT_SECONDS = 1.0
 
+# How often to check the container is still alive while awaiting a 2FA code.
+# The wrapper's own window is ~60s, so a couple of seconds is responsive enough
+# to release the UI promptly without polling the Docker API hard.
+_TWOFA_POLL_SECONDS = 2.0
+
 # Substrings matched against lowercased wrapper stdout to detect each state.
 _READY_LOG_MARKERS = ("listening", "server started", "ready")
 _TWO_FACTOR_LOG_MARKERS = ("2fa", "two-factor", "verification code", "enter the code")
@@ -47,6 +52,7 @@ class WrapperManager:
         self._pending_2fa = False
         self._auth_event_listeners: List[Callable[[dict], None]] = []
         self._monitor_thread: Optional[threading.Thread] = None
+        self._twofa_watchdog: Optional[threading.Thread] = None
         self._stop_monitor = False
 
     # --- Auth event fan-out (consumed by app.py -> ws/auth) ---
@@ -181,9 +187,60 @@ class WrapperManager:
                     self._inspect_log_line(line, is_login)
             except Exception as monitor_error:
                 logger.warning(f"wrapper monitor ended: {monitor_error}")
+            finally:
+                # The log stream ending means the container stopped producing
+                # output — almost always because it exited. If that happens
+                # while we are still waiting for a 2FA code, the user is sitting
+                # on a code-entry screen for a container that no longer exists,
+                # so it has to be surfaced rather than silently dropped.
+                if not self._stop_monitor:
+                    self._handle_container_exit()
 
         self._monitor_thread = threading.Thread(target=run, daemon=True)
         self._monitor_thread.start()
+
+    def _handle_container_exit(self) -> None:
+        """Emit an auth error if the wrapper died while 2FA was outstanding.
+
+        The wrapper waits 60s for a code and then exits for good — it does NOT
+        retry — so without this the frontend waits forever on a dead container.
+        """
+        if not self._pending_2fa:
+            return
+        status = docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME)
+        if status == "running":
+            # Log stream hiccup rather than a real exit; leave state alone.
+            return
+        self._pending_2fa = False
+        self._ready = False
+        logger.warning(f"Wrapper exited while awaiting 2FA (status={status})")
+        self._emit_auth(
+            "auth_error",
+            "The verification window expired. Please sign in again to get a new code.",
+        )
+
+    def _start_2fa_watchdog(self) -> None:
+        """Poll container status while a 2FA code is outstanding.
+
+        Belt-and-braces alongside the log stream: if the stream stalls without
+        closing (a stuck reader, a Docker API hiccup), polling still notices the
+        container has gone and releases the UI.
+        """
+        if self._twofa_watchdog and self._twofa_watchdog.is_alive():
+            return
+
+        def run() -> None:
+            while not self._stop_monitor and self._pending_2fa:
+                time.sleep(_TWOFA_POLL_SECONDS)
+                if self._stop_monitor or not self._pending_2fa:
+                    return
+                status = docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME)
+                if status != "running":
+                    self._handle_container_exit()
+                    return
+
+        self._twofa_watchdog = threading.Thread(target=run, daemon=True)
+        self._twofa_watchdog.start()
 
     def _inspect_log_line(self, line: str, is_login: bool) -> None:
         redacted_line = redact_credentials(line)
@@ -196,6 +253,9 @@ class WrapperManager:
 
         if is_login and not self._pending_2fa and any(marker in lowered_line for marker in _TWO_FACTOR_LOG_MARKERS):
             self._pending_2fa = True
+            # The wrapper gives the user only ~60s before it exits for good, so
+            # start watching for that exit the moment we ask for a code.
+            self._start_2fa_watchdog()
             self._emit_auth("auth_2fa_required", "Enter your 6-digit verification code")
             return
 
