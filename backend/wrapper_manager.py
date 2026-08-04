@@ -5,7 +5,15 @@ Key facts:
   * Args passed via ``-e args="..."`` env var, NOT direct command args.
   * Login mode:  args="-L email:password -H 0.0.0.0"
   * Normal mode: args="-H 0.0.0.0"
-  * 2FA: uses ``-F/--code-from-file``; code is written to rootfs/data/2fa.txt.
+  * 2FA: uses ``-F/--code-from-file``. The code goes in a file NESTED well
+    below the volume root, not at ``rootfs/data/2fa.txt`` as previously
+    documented here. The wrapper reports the location itself:
+        rootfs//data/data/com.apple.android.music/files/2fa.txt
+    Since the volume below maps {wrapper_data_path} -> /app/rootfs/data, the
+    host path is {wrapper_data_path}/data/com.apple.android.music/files/2fa.txt
+    (see WRAPPER_BASE_SUBDIR in auth_manager). Writing to the volume root
+    instead meant the wrapper never saw the code, waited out its ~60s window
+    and exited, leaving the UI stuck on the code-entry screen.
   * Ports 10020 (decrypt), 20020 (m3u8), 30020 (account).
   * Volume: {wrapper_data_path} -> /app/rootfs/data
   * Readiness: poll logs for "listening".

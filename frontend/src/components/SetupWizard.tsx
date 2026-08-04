@@ -223,8 +223,27 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   };
 
   const submit2fa = async () => {
+    // Validate before sending: the wrapper consumes the code file the instant
+    // it appears, so an empty or partial submission burns the user's single
+    // attempt and drops them back to the start of the sign-in.
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      setAuthErr('Verification code cannot be empty.');
+      return;
+    }
+    if (trimmedCode.length < 6) {
+      setAuthErr('Enter all 6 digits of your verification code.');
+      return;
+    }
+    setAuthErr('');
     setBusy(true);
-    await api.post('/auth/2fa', { code: code.trim() });
+    const response = await api.post('/auth/2fa', { code: trimmedCode });
+    // The backend rejects a malformed code without writing it, so surface that
+    // instead of leaving the user waiting on a code that was never submitted.
+    if (response.data?.success === false) {
+      setBusy(false);
+      setAuthErr('That code was not accepted. Please check it and try again.');
+    }
   };
 
   const finish = async () => {
@@ -564,18 +583,24 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                   inputMode="numeric"
                   maxLength={6}
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => {
+                    setCode(e.target.value.replace(/\D/g, ''));
+                    // Clear a stale "cannot be empty" as soon as they type.
+                    if (authErr) setAuthErr('');
+                  }}
                   placeholder="6-digit code"
                   aria-label="Two-factor verification code"
+                  aria-invalid={Boolean(authErr)}
                   autoComplete="one-time-code"
                   className="w-full rounded-xl border border-white/[0.10] bg-black/30 px-4 py-3 text-center text-lg tracking-[0.5em] text-gray-100 placeholder:text-gray-500 placeholder:tracking-normal focus:border-audora-500/60 focus:outline-none"
                 />
                 <button
                   onClick={submit2fa}
-                  disabled={busy}
+                  disabled={busy || code.trim().length < 6}
                   className="w-full rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
                 >
-                  Verify
+                  {busy && <Loader2 size={16} className="mr-2 inline animate-spin" />}
+                  {busy ? 'Verifying...' : 'Verify'}
                 </button>
               </>
             )}
