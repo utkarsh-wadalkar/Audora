@@ -225,7 +225,7 @@ async def _await_wrapper_ready() -> None:
     logger.info(f"Wrapper ready: {ready}")
 
 
-app = FastAPI(title="Audora Backend", version="1.2.0", lifespan=lifespan)
+app = FastAPI(title="Audora Backend", version="1.5.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
