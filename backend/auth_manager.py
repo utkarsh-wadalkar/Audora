@@ -8,28 +8,33 @@ from logger import get_logger
 
 logger = get_logger("auth")
 
-# The wrapper's base directory, RELATIVE to the mounted data volume.
+# The wrapper tells us exactly where it wants the 2FA code. From its own log:
 #
-# The container mount is  {wrapper_data_path} -> /app/rootfs/data  and the
-# wrapper reports the 2FA file as (relative to its /app workdir):
+#     [!] Enter your 2FA code into rootfs//data/data/com.apple.android.music/files/2fa.txt
 #
-#     rootfs//data/data/com.apple.android.music/files/2fa.txt
+# That is the HARDCODED location below — nothing about it is inferred or
+# configurable. The only variable part is where the user keeps their wrapper
+# data, because that differs per machine (see wrapper_data_path in settings).
 #
-# i.e. absolute  /app/rootfs/data/data/com.apple.android.music/files/2fa.txt
-#                 \_______________/ the mount point ends here
-#
-# so the tail below the mount — and therefore below wrapper_data_path on the
-# host — has ONE "data" segment, not two. Note wrapper_data_path already ends
-# in "rootfs/data"; re-appending the whole logged path would double-count it
-# and write somewhere nothing reads, which is precisely the bug this fixes.
-#
-# Confirmed against the real session tree on disk:
-#   {wrapper_data_path}/data/com.apple.android.music/files/adi.pb
-#   {wrapper_data_path}/data/com.apple.android.music/files/mpl_db/accounts.sqlitedb
+# The container mount is {wrapper_data_path} -> /app/rootfs/data, and
+# wrapper_data_path itself ends in "rootfs\data". So the constant below is the
+# tail that goes BELOW that setting; joined together the final path contains
+# "rootfs\data\data\com.apple.android.music\files\2fa.txt" exactly as the
+# wrapper requires. TWOFA_REQUIRED_TAIL pins that, and a test asserts it.
 WRAPPER_BASE_SUBDIR = os.path.join("data", "com.apple.android.music", "files")
 
 # Name of the file the wrapper's -F/--code-from-file flag polls for.
 TWOFA_FILENAME = "2fa.txt"
+
+# The exact trailing path the wrapper demands, hardcoded from its log output.
+# Any change to the pieces above that stops producing this is a bug.
+TWOFA_REQUIRED_TAIL = os.path.join(
+    "rootfs", "data", "data", "com.apple.android.music", "files", "2fa.txt"
+)
+
+# A submitted code must be digits only. Apple sends 6, but the length is not
+# enforced here so a future change on their side cannot lock users out.
+TWOFA_CODE_LENGTH = 6
 
 # Files that only exist once a sign-in has actually completed. Device
 # provisioning files (adi.pb, fsi.pdat, IC-Info.sids) appear on first run even
@@ -118,7 +123,19 @@ class AuthManager:
         The wrapper polls a file several levels below the mounted volume root,
         so the intermediate directories are created if the wrapper has not
         already made them.
+
+        Rejects an empty or non-numeric code rather than writing it: the wrapper
+        consumes the file the instant it appears, so a blank write burns the
+        user's one attempt and drops them back to the start of the sign-in.
         """
+        cleaned_code = (code or "").strip()
+        if not cleaned_code:
+            logger.warning("Refusing to submit an empty 2FA code")
+            return False
+        if not cleaned_code.isdigit():
+            logger.warning("Refusing to submit a non-numeric 2FA code")
+            return False
+
         base_dir = self._base_dir()
         if not base_dir:
             logger.error("No wrapper data path configured; cannot write 2FA code")
@@ -134,7 +151,7 @@ class AuthManager:
             # No trailing newline: the wrapper's own example is
             # `echo -n 114514 > ...`, i.e. the bare digits.
             with open(twofa_file, "w", encoding="utf-8", newline="") as handle:
-                handle.write(code.strip())
+                handle.write(cleaned_code)
             logger.info(f"2FA code written to {twofa_file}")
             self._pending_2fa = False
             return True
