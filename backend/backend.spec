@@ -2,7 +2,7 @@
 """PyInstaller spec — builds backend/app.py into a standalone backend.exe.
 
 Build:  pyinstaller backend.spec  (run from the backend/ directory)
-Output: backend/dist/backend.exe
+Output: backend/dist/backend/backend.exe
 
 Note: The SQLite DB, settings.json, logs, and album_art are created at
 runtime under a writable data/ dir next to the exe — they are NOT bundled.
@@ -67,9 +67,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="backend",
     debug=False,
     bootloader_ignore_signals=False,
@@ -80,4 +79,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="backend",
 )

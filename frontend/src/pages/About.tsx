@@ -31,10 +31,10 @@ export default function About() {
 
         <div className="relative z-10 space-y-2 text-sm leading-relaxed text-gray-400">
           <p>
-            Audora downloads albums, playlists and tracks in ALAC and keeps them playable
-            offline, with a built-in player and library browser. Docker and the command
-            line stay out of your way, but the log panel keeps them visible when you need
-            to know what happened.
+            Audora downloads albums, playlists and tracks in lossless FLAC and keeps them
+            playable offline, with a built-in player and library browser. Docker and the
+            command line stay out of your way, but the log panel keeps them visible when
+            you need to know what happened.
           </p>
           <p className="text-gray-500">
             An active Apple Music subscription is required. Audora is for personal offline

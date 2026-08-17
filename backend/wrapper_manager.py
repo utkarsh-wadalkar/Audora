@@ -5,22 +5,20 @@ Key facts:
   * Args passed via ``-e args="..."`` env var, NOT direct command args.
   * Login mode:  args="-L email:password -H 0.0.0.0"
   * Normal mode: args="-H 0.0.0.0"
-  * 2FA: uses ``-F/--code-from-file``. The code goes in a file NESTED well
-    below the volume root, not at ``rootfs/data/2fa.txt`` as previously
-    documented here. The wrapper reports the location itself:
-        rootfs//data/data/com.apple.android.music/files/2fa.txt
-    Since the volume below maps {wrapper_data_path} -> /app/rootfs/data, the
-    host path is {wrapper_data_path}/data/com.apple.android.music/files/2fa.txt
-    (see WRAPPER_BASE_SUBDIR in auth_manager). Writing to the volume root
-    instead meant the wrapper never saw the code, waited out its ~60s window
-    and exited, leaving the UI stuck on the code-entry screen.
+  * 2FA: uses ``-F/--code-from-file``. The target path is parsed from this
+    container run's own prompt and mapped through the configured data volume;
+    no version-specific suffix is stored in Audora.
   * Ports 10020 (decrypt), 20020 (m3u8), 30020 (account).
   * Volume: {wrapper_data_path} -> /app/rootfs/data
   * Readiness: poll logs for "listening".
 """
+import os
+import posixpath
+import re
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from collections import deque
+from typing import Callable, Deque, Dict, List, Optional
 
 from docker_manager import docker_mgr
 from settings import get_settings
@@ -48,10 +46,85 @@ _PROBE_TIMEOUT_SECONDS = 1.0
 # to release the UI promptly without polling the Docker API hard.
 _TWOFA_POLL_SECONDS = 2.0
 
-# Substrings matched against lowercased wrapper stdout to detect each state.
-_READY_LOG_MARKERS = ("listening", "server started", "ready")
-_TWO_FACTOR_LOG_MARKERS = ("2fa", "two-factor", "verification code", "enter the code")
+# Wrapper output is the source of truth for setup authentication state.
+_READY_LOG_PATTERN = re.compile(r"\blistening(?:\s+on)?\s+0\.0\.0\.0:\d+\b", re.IGNORECASE)
+_TWOFA_PATH_PATTERNS = (
+    re.compile(r"Enter your 2FA code into\s+(.+?)\s*$", re.IGNORECASE),
+    re.compile(r"Example command:\s*echo\s+-n\s+\S+\s*>\s*(.+?)\s*$", re.IGNORECASE),
+)
 _LOGIN_ERROR_LOG_MARKERS = ("invalid", "incorrect", "failed to login", "authentication failed")
+_CREDENTIALS_REQUIRED_LOG_MARKERS = (
+    "account database not found",
+    "username and password environment variables must be set",
+    "login required",
+)
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+WRAPPER_STATE_STOPPED = "stopped"
+WRAPPER_STATE_STARTING = "starting"
+WRAPPER_STATE_AUTHENTICATED = "authenticated"
+WRAPPER_STATE_NEEDS_CREDENTIALS = "needs_credentials"
+WRAPPER_STATE_NEEDS_2FA = "needs_2fa"
+WRAPPER_STATE_ERROR = "error"
+_TERMINAL_SETUP_STATES = {
+    WRAPPER_STATE_AUTHENTICATED,
+    WRAPPER_STATE_NEEDS_CREDENTIALS,
+    WRAPPER_STATE_NEEDS_2FA,
+    WRAPPER_STATE_ERROR,
+}
+
+
+def parse_twofa_path_from_log(line: str) -> str:
+    """Return the exact path printed by the wrapper's current 2FA prompt."""
+    clean_line = _ANSI_ESCAPE_PATTERN.sub("", line or "")
+    for pattern in _TWOFA_PATH_PATTERNS:
+        match = pattern.search(clean_line)
+        if not match:
+            continue
+        return match.group(1).strip().strip("`'\"")
+    return ""
+
+
+def resolve_twofa_host_path(reported_path: str, wrapper_data_path: str) -> str:
+    """Map a wrapper-reported container path through the configured volume.
+
+    The only stable path contract is the Docker mount itself:
+    ``wrapper_data_path`` is mounted at ``/app/rootfs/data``. Everything below
+    that mount is taken from the wrapper's current log line, never from a
+    version-specific suffix stored in Audora.
+    """
+    if not reported_path or not wrapper_data_path:
+        return ""
+
+    normalized = reported_path.replace("\\", "/")
+    if normalized.startswith("/"):
+        container_path = posixpath.normpath(normalized)
+    else:
+        container_path = posixpath.normpath(posixpath.join("/app", normalized))
+
+    mount_path = "/app/rootfs/data"
+    if container_path == mount_path:
+        relative_path = ""
+    elif container_path.startswith(f"{mount_path}/"):
+        relative_path = container_path[len(mount_path) + 1 :]
+    else:
+        logger.error(
+            f"Wrapper reported a 2FA path outside the mounted data volume: {reported_path}"
+        )
+        return ""
+
+    host_root = os.path.abspath(wrapper_data_path)
+    candidate = os.path.abspath(
+        os.path.join(host_root, *relative_path.split("/"))
+        if relative_path
+        else host_root
+    )
+    try:
+        if os.path.commonpath((host_root, candidate)) != host_root:
+            return ""
+    except ValueError:
+        return ""
+    return candidate
 
 
 class WrapperManager:
@@ -59,22 +132,64 @@ class WrapperManager:
         self._ready = False
         self._pending_2fa = False
         self._auth_event_listeners: List[Callable[[dict], None]] = []
+        self._log_event_listeners: List[Callable[[dict], None]] = []
+        self._recent_logs: Deque[dict] = deque(maxlen=2000)
+        self._log_sequence = 0
         self._monitor_thread: Optional[threading.Thread] = None
         self._twofa_watchdog: Optional[threading.Thread] = None
         self._stop_monitor = False
+        self._state = WRAPPER_STATE_STOPPED
+        self._state_condition = threading.Condition()
+        self._twofa_reported_path = ""
+        self._twofa_host_path = ""
 
     # --- Auth event fan-out (consumed by app.py -> ws/auth) ---
     def register_auth_callback(self, listener: Callable[[dict], None]) -> None:
         if listener not in self._auth_event_listeners:
             self._auth_event_listeners.append(listener)
 
-    def _emit_auth(self, event_type: str, message: str) -> None:
-        event = {"type": event_type, "message": message}
+    def _emit_auth(self, event_type: str, message: str, **extra: str) -> None:
+        event = {"type": event_type, "message": message, **extra}
         for listener in list(self._auth_event_listeners):
             try:
                 listener(event)
             except Exception:
                 pass
+
+    def register_log_callback(self, listener: Callable[[dict], None]) -> None:
+        if listener not in self._log_event_listeners:
+            self._log_event_listeners.append(listener)
+
+    def _emit_log(self, line: str) -> None:
+        self._log_sequence += 1
+        event = {"sequence": self._log_sequence, "line": line}
+        self._recent_logs.append(event)
+        for listener in list(self._log_event_listeners):
+            try:
+                listener(event)
+            except Exception:
+                pass
+
+    def get_recent_logs(self) -> List[dict]:
+        return list(self._recent_logs)
+
+    def _set_state(self, state: str) -> None:
+        with self._state_condition:
+            self._state = state
+            self._state_condition.notify_all()
+
+    def wait_for_setup_state(self, timeout: int = 60) -> str:
+        deadline = time.time() + timeout
+        with self._state_condition:
+            while self._state not in _TERMINAL_SETUP_STATES:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return self._state
+                self._state_condition.wait(timeout=remaining)
+            return self._state
+
+    def get_twofa_host_path(self) -> str:
+        return self._twofa_host_path
 
     # --- Container config ---
     def _base_config(self, args: str) -> dict:
@@ -116,6 +231,7 @@ class WrapperManager:
         if not docker_mgr.is_docker_running():
             logger.error("Docker is not running; cannot start wrapper")
             self._emit_auth("auth_error", "Docker is not running")
+            self._set_state(WRAPPER_STATE_ERROR)
             return False
 
         # Reuse an already-serving wrapper instead of recreating it.
@@ -134,10 +250,18 @@ class WrapperManager:
             logger.info("Wrapper already running and serving; reusing it")
             self._ready = True
             self._pending_2fa = False
+            self._set_state(WRAPPER_STATE_AUTHENTICATED)
+            self._emit_auth("auth_success", "Signed in successfully")
+            existing = docker_mgr.get_container(WRAPPER_CONTAINER_NAME)
+            if existing is not None:
+                self._start_monitor(existing.id, is_login=False)
             return True
 
         self._ready = False
         self._pending_2fa = False
+        self._twofa_reported_path = ""
+        self._twofa_host_path = ""
+        self._set_state(WRAPPER_STATE_STARTING)
         logger.info(f"Starting wrapper: {redact_credentials(args)}")
         if is_login:
             self._emit_auth("auth_progress", "Starting wrapper...")
@@ -149,6 +273,7 @@ class WrapperManager:
             # so the UI shows an actionable message instead of a generic one.
             real_error = docker_mgr.last_start_error or "Failed to start decryption service"
             self._emit_auth("auth_error", real_error)
+            self._set_state(WRAPPER_STATE_ERROR)
             return False
 
         # Monitor logs in a background thread for readiness / 2FA / errors.
@@ -181,6 +306,9 @@ class WrapperManager:
         self._stop_monitor = True
         self._ready = False
         self._pending_2fa = False
+        self._twofa_reported_path = ""
+        self._twofa_host_path = ""
+        self._set_state(WRAPPER_STATE_STOPPED)
         return docker_mgr.stop_container(WRAPPER_CONTAINER_NAME, timeout=8)
 
     # --- Log monitoring ---
@@ -213,14 +341,21 @@ class WrapperManager:
         The wrapper waits 60s for a code and then exits for good — it does NOT
         retry — so without this the frontend waits forever on a dead container.
         """
-        if not self._pending_2fa:
-            return
         status = docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME)
         if status == "running":
             # Log stream hiccup rather than a real exit; leave state alone.
             return
+        if not self._pending_2fa:
+            if self._state == WRAPPER_STATE_STARTING:
+                self._set_state(WRAPPER_STATE_NEEDS_CREDENTIALS)
+                self._emit_auth(
+                    "auth_credentials_required",
+                    "Sign in with your Apple ID to continue",
+                )
+            return
         self._pending_2fa = False
         self._ready = False
+        self._set_state(WRAPPER_STATE_ERROR)
         logger.warning(f"Wrapper exited while awaiting 2FA (status={status})")
         self._emit_auth(
             "auth_error",
@@ -251,28 +386,56 @@ class WrapperManager:
         self._twofa_watchdog.start()
 
     def _inspect_log_line(self, line: str, is_login: bool) -> None:
+        self._emit_log(line)
         redacted_line = redact_credentials(line)
         logger.info(f"[wrapper] {redacted_line}")
         lowered_line = line.lower()
 
         if any(marker in lowered_line for marker in _LOGIN_ERROR_LOG_MARKERS):
+            self._set_state(WRAPPER_STATE_ERROR)
             self._emit_auth("auth_error", "Incorrect Apple ID or password")
             return
 
-        if is_login and not self._pending_2fa and any(marker in lowered_line for marker in _TWO_FACTOR_LOG_MARKERS):
+        reported_path = parse_twofa_path_from_log(line)
+        if reported_path:
+            host_path = resolve_twofa_host_path(
+                reported_path, get_settings().get("wrapper_data_path", "")
+            )
+            if not host_path:
+                self._set_state(WRAPPER_STATE_ERROR)
+                self._emit_auth(
+                    "auth_error", "The wrapper reported an unusable 2FA file path"
+                )
+                return
+            self._twofa_reported_path = reported_path
+            self._twofa_host_path = host_path
+            if self._pending_2fa:
+                return
             self._pending_2fa = True
+            self._set_state(WRAPPER_STATE_NEEDS_2FA)
             # The wrapper gives the user only ~60s before it exits for good, so
             # start watching for that exit the moment we ask for a code.
             self._start_2fa_watchdog()
-            self._emit_auth("auth_2fa_required", "Enter your 6-digit verification code")
+            self._emit_auth(
+                "auth_2fa_required",
+                "Enter your 6-digit verification code",
+                path=reported_path,
+            )
             return
 
-        if any(marker in lowered_line for marker in _READY_LOG_MARKERS):
+        if any(marker in lowered_line for marker in _CREDENTIALS_REQUIRED_LOG_MARKERS):
+            self._set_state(WRAPPER_STATE_NEEDS_CREDENTIALS)
+            self._emit_auth(
+                "auth_credentials_required", "Sign in with your Apple ID to continue"
+            )
+            return
+
+        if _READY_LOG_PATTERN.search(line):
             if not self._ready:
                 self._ready = True
                 self._pending_2fa = False
-                if is_login:
-                    self._emit_auth("auth_success", "Signed in successfully")
+                self._set_state(WRAPPER_STATE_AUTHENTICATED)
+                self._emit_auth("auth_success", "Signed in successfully")
                 logger.info("Wrapper is ready (listening)")
 
     # --- Readiness ---
@@ -314,6 +477,8 @@ class WrapperManager:
             "running": running,
             "ready": ready,
             "pending_2fa": self._pending_2fa,
+            "state": self._state,
+            "twofa_path": self._twofa_reported_path,
             "message": "Ready" if ready else ("Running" if running else "Stopped"),
         }
 

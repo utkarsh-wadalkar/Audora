@@ -31,10 +31,13 @@ export interface TerminalLine {
   status: SetupStepStatus;
   /** Already-redacted narration text from the event's `message` field. */
   text: string;
+  /** Render the line exactly as emitted, without setup-specific prefixes. */
+  raw?: boolean;
 }
 
 export interface SetupTerminalPanelProps {
   lines: TerminalLine[];
+  title?: string;
   /** Extra classes for the outer element, e.g. flex sizing from the parent. */
   className?: string;
 }
@@ -49,6 +52,7 @@ function lineColor(status: SetupStepStatus): string {
 
 export default function SetupTerminalPanel({
   lines,
+  title = 'Setup log',
   className = '',
 }: SetupTerminalPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,7 +83,7 @@ export default function SetupTerminalPanel({
       {/* Title bar — mimics a console window without pretending to be one. */}
       <div className="flex items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
         <Terminal size={14} className="text-audora-300" />
-        <span className="text-xs font-medium text-gray-300">Setup log</span>
+        <span className="text-xs font-medium text-gray-300">{title}</span>
         {!autoScroll && (
           <span className="ml-auto text-[10px] text-gray-500">
             scrolled up — auto-scroll paused
@@ -100,19 +104,30 @@ export default function SetupTerminalPanel({
           </div>
         ) : (
           <>
-            {lines.map((line, index) => (
-              <div key={line.id} className="flex gap-2 whitespace-pre-wrap break-words">
-                <span className="shrink-0 text-gray-600">{line.timestamp}</span>
-                <span className="shrink-0 text-audora-300">PS&gt;</span>
-                <span className={lineColor(line.status)}>
-                  <span className="text-gray-600">[{line.step}]</span> {line.text}
-                  {/* Blinking cursor rides the newest line only. */}
+            {lines.map((line, index) =>
+              line.raw ? (
+                <div
+                  key={line.id}
+                  className="whitespace-pre-wrap break-words text-gray-300"
+                >
+                  {line.text}
                   {index === lines.length - 1 && (
                     <span className="ml-0.5 animate-pulse text-gray-400">_</span>
                   )}
-                </span>
-              </div>
-            ))}
+                </div>
+              ) : (
+                <div key={line.id} className="flex gap-2 whitespace-pre-wrap break-words">
+                  <span className="shrink-0 text-gray-600">{line.timestamp}</span>
+                  <span className="shrink-0 text-audora-300">PS&gt;</span>
+                  <span className={lineColor(line.status)}>
+                    <span className="text-gray-600">[{line.step}]</span> {line.text}
+                    {index === lines.length - 1 && (
+                      <span className="ml-0.5 animate-pulse text-gray-400">_</span>
+                    )}
+                  </span>
+                </div>
+              ),
+            )}
           </>
         )}
       </div>

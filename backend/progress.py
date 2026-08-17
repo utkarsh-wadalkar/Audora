@@ -64,7 +64,9 @@ def parse_line(line: str) -> Optional[Dict]:
 
 def _clean(name: str) -> str:
     name = name.strip().strip('"').strip()
-    # Drop a trailing .m4a / percentage noise if present.
+    # Drop a trailing extension / percentage noise if present. Both formats are
+    # stripped: the downloader reports .m4a while it fetches the lossless
+    # source, and .flac once Audora has converted it.
     name = re.sub(r"\s*\d{1,3}%\s*$", "", name)
-    name = re.sub(r"\.m4a$", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\.(m4a|flac)$", "", name, flags=re.IGNORECASE)
     return name.strip()

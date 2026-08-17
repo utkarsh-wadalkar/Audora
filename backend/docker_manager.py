@@ -350,8 +350,9 @@ class DockerManager:
                     continue
                 text = chunk.decode("utf-8", errors="replace")
                 for line in text.splitlines():
-                    if line:
-                        yield line
+                    # Preserve blank lines too: setup displays the container's
+                    # complete raw output, not a summarized/non-empty subset.
+                    yield line
         except Exception as e:
             logger.warning(f"stream_logs ended: {e}")
 

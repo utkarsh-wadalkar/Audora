@@ -31,6 +31,7 @@ import urllib.request
 import zipfile
 from typing import Callable, Dict, List, Optional, Tuple
 
+import downloader_image
 from docker_manager import docker_mgr
 from settings import get_settings, update_settings
 from logger import get_logger
@@ -517,6 +518,9 @@ class SetupManager:
             "wsl2": {"ok": wsl_ok},
             "images": {
                 "downloader": docker_mgr.image_exists(DOWNLOADER_IMAGE),
+                # Audora's derived image (upstream + ffmpeg) is what downloads
+                # actually run, so setup is not complete without it.
+                "audora_downloader": downloader_image.image_is_built(),
                 "wrapper": docker_mgr.image_exists(WRAPPER_IMAGE),
             },
         }
@@ -603,7 +607,19 @@ class SetupManager:
             return
         self._emit_state("pull_downloader", StepState.SUCCESS, "Pulled")
 
-        # 2) Build wrapper from source (idempotent: present image is a no-op).
+        # 2) Build Audora's downloader image (upstream + ffmpeg) so downloads
+        #    can be converted to FLAC without the user installing anything.
+        downloader_ok = self._run_step_with_retry(
+            "build_downloader",
+            self._build_downloader_step,
+            "Adding FLAC support...",
+            sleep=sleep,
+        )
+        if not downloader_ok:
+            return
+        self._emit_state("build_downloader", StepState.SUCCESS, "Ready")
+
+        # 3) Build wrapper from source (idempotent: present image is a no-op).
         build_ok = self._run_step_with_retry(
             "build_wrapper",
             self._build_wrapper_step,
@@ -683,6 +699,47 @@ class SetupManager:
                 line = str(chunk["stream"]).strip()
                 if line:
                     logger.info(f"[wrapper build] {line}")
+
+    def _build_downloader_step(self) -> None:
+        """One idempotent attempt at building Audora's downloader image.
+
+        The image is the upstream downloader plus a static ffmpeg, which is what
+        lets Audora convert the lossless ALAC download into FLAC. FLAC matters
+        because Chromium (and so Electron) cannot decode ALAC, so an unconverted
+        download would never play in Audora's own player.
+
+        ffmpeg is verified here rather than at first download: a missing binary
+        found now is a clear setup failure the user can retry, whereas the same
+        problem found later would strand a finished download.
+        """
+        step = "build_downloader"
+
+        if downloader_image.image_is_built():
+            self._emit(step, "running", "Already prepared")
+        else:
+            self._emit(step, "running", "Adding FLAC support...")
+            try:
+                downloader_image.build_downloader_image(
+                    on_log=lambda line: self._emit(step, "running", line)
+                )
+            except Exception as build_error:
+                logger.error(f"Downloader image build failed: {build_error}")
+                raise _StepFailure(
+                    classify_error(str(build_error)),
+                    raw=str(build_error),
+                )
+
+        if not downloader_image.verify_ffmpeg_present():
+            # Permanent: retrying an image that built successfully without a
+            # working ffmpeg will not fix itself.
+            raise _StepFailure(
+                ErrorCode.UNKNOWN,
+                message=(
+                    "Could not prepare FLAC conversion (ffmpeg is missing from "
+                    "the downloader image). Click Retry to rebuild it."
+                ),
+                raw="verify_ffmpeg_present() returned False",
+            )
 
     def _build_wrapper_step(self) -> None:
         """One idempotent attempt at building the wrapper image from source.

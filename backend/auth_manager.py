@@ -8,29 +8,14 @@ from logger import get_logger
 
 logger = get_logger("auth")
 
-# The wrapper tells us exactly where it wants the 2FA code. From its own log:
-#
-#     [!] Enter your 2FA code into rootfs//data/data/com.apple.android.music/files/2fa.txt
-#
-# That is the HARDCODED location below — nothing about it is inferred or
-# configurable. The only variable part is where the user keeps their wrapper
-# data, because that differs per machine (see wrapper_data_path in settings).
-#
-# The container mount is {wrapper_data_path} -> /app/rootfs/data, and
-# wrapper_data_path itself ends in "rootfs\data". So the constant below is the
-# tail that goes BELOW that setting; joined together the final path contains
-# "rootfs\data\data\com.apple.android.music\files\2fa.txt" exactly as the
-# wrapper requires. TWOFA_REQUIRED_TAIL pins that, and a test asserts it.
+# Session files currently live below this wrapper-owned directory. The 2FA
+# target is deliberately not derived from it: every wrapper run reports its
+# own exact code-file path, which WrapperManager parses and maps through the
+# configured Docker volume.
 WRAPPER_BASE_SUBDIR = os.path.join("data", "com.apple.android.music", "files")
 
 # Name of the file the wrapper's -F/--code-from-file flag polls for.
 TWOFA_FILENAME = "2fa.txt"
-
-# The exact trailing path the wrapper demands, hardcoded from its log output.
-# Any change to the pieces above that stops producing this is a bug.
-TWOFA_REQUIRED_TAIL = os.path.join(
-    "rootfs", "data", "data", "com.apple.android.music", "files", "2fa.txt"
-)
 
 # A submitted code must be digits only. Apple sends 6, but the length is not
 # enforced here so a future change on their side cannot lock users out.
@@ -63,9 +48,8 @@ class AuthManager:
         return os.path.join(data_path, WRAPPER_BASE_SUBDIR)
 
     def twofa_path(self) -> str:
-        """Full host path of the 2FA code file the wrapper polls."""
-        base_dir = self._base_dir()
-        return os.path.join(base_dir, TWOFA_FILENAME) if base_dir else ""
+        """Host path parsed from the current wrapper container's own log."""
+        return wrapper_mgr.get_twofa_host_path()
 
     def is_logged_in(self) -> bool:
         """True only if a real session store exists in the wrapper's base dir.
@@ -87,8 +71,8 @@ class AuthManager:
         return False
 
     def get_auth_status(self) -> dict:
-        logged_in = self.is_logged_in()
         wrapper = wrapper_mgr.get_wrapper_status()
+        logged_in = bool(wrapper.get("ready")) or self.is_logged_in()
         return {
             "logged_in": logged_in,
             "pending_2fa": wrapper.get("pending_2fa", self._pending_2fa),
@@ -106,16 +90,25 @@ class AuthManager:
         return success
 
     def _clear_stale_2fa(self) -> None:
-        """Delete a leftover 2FA code file, if any. Best effort."""
-        for candidate in (self.twofa_path(), os.path.join(self._data_path() or "", TWOFA_FILENAME)):
-            if not candidate:
-                continue
-            try:
-                if os.path.isfile(candidate):
-                    os.remove(candidate)
-                    logger.info("Removed stale 2FA code file")
-            except OSError as remove_error:
-                logger.warning(f"Could not remove stale 2FA file: {remove_error}")
+        """Delete stale code files anywhere below the mounted wrapper data."""
+        data_path = self._data_path()
+        if not data_path or not os.path.isdir(data_path):
+            return
+        try:
+            for root, _dirs, files in os.walk(data_path):
+                for filename in files:
+                    if filename.lower() != TWOFA_FILENAME:
+                        continue
+                    candidate = os.path.join(root, filename)
+                    try:
+                        os.remove(candidate)
+                        logger.info(f"Removed stale 2FA code file at {candidate}")
+                    except OSError as remove_error:
+                        logger.warning(
+                            f"Could not remove stale 2FA file {candidate}: {remove_error}"
+                        )
+        except OSError as walk_error:
+            logger.warning(f"Could not scan for stale 2FA files: {walk_error}")
 
     def submit_2fa(self, code: str) -> bool:
         """Write the 2FA code where the wrapper's ``-F`` flag will read it.
@@ -136,17 +129,17 @@ class AuthManager:
             logger.warning("Refusing to submit a non-numeric 2FA code")
             return False
 
-        base_dir = self._base_dir()
-        if not base_dir:
-            logger.error("No wrapper data path configured; cannot write 2FA code")
+        twofa_file = self.twofa_path()
+        if not twofa_file:
+            logger.error("Wrapper has not reported a 2FA file path for this run")
             return False
+        base_dir = os.path.dirname(twofa_file)
         try:
             os.makedirs(base_dir, exist_ok=True)
         except OSError as mkdir_error:
             logger.error(f"Cannot create wrapper base dir {base_dir}: {mkdir_error}")
             return False
 
-        twofa_file = os.path.join(base_dir, TWOFA_FILENAME)
         try:
             # No trailing newline: the wrapper's own example is
             # `echo -n 114514 > ...`, i.e. the bare digits.

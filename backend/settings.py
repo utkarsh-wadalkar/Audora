@@ -21,7 +21,6 @@ DEFAULTS: Dict[str, Any] = {
     "auto_start_wrapper": True,
     "backend_port": 8000,
     "log_level": "INFO",
-    "download_format": "alac",  # alac | aac | atmos
     "setup_complete": False,
     # Leave the wrapper container running when Audora exits, so the next start
     # reuses it instead of tearing it down and rebuilding. Removing it on exit

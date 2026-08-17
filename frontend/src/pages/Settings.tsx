@@ -3,12 +3,6 @@ import { FolderOpen, LogOut } from 'lucide-react';
 import { api, electronAPI } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 
-const FORMAT_OPTIONS = [
-  { value: 'alac', label: 'ALAC (Lossless)' },
-  { value: 'aac', label: 'AAC' },
-  { value: 'atmos', label: 'Dolby Atmos' },
-];
-
 export default function Settings() {
   const [settings, setSettings] = useState<any>({});
   const [saved, setSaved] = useState(false);
@@ -70,28 +64,17 @@ export default function Settings() {
           Downloads
         </h2>
 
-        <div className="glass space-y-2.5 rounded-2xl p-4">
-          <label
-            htmlFor="download-format"
-            className="relative z-10 block text-sm font-medium text-gray-200"
-          >
-            Default format
-          </label>
+        {/* Format is not a setting: Audora always downloads the lossless source
+            and converts it to FLAC, which is the only format its player can
+            decode. Stated here so the absence reads as deliberate. */}
+        <div className="glass space-y-1 rounded-2xl p-4">
+          <span className="relative z-10 block text-sm font-medium text-gray-200">
+            Format
+          </span>
           <p className="relative z-10 text-xs text-gray-500">
-            ALAC keeps full lossless quality, at roughly 30–50 MB per track.
+            Every download is saved as FLAC — full lossless quality, at roughly
+            30–50 MB per track.
           </p>
-          <select
-            id="download-format"
-            value={settings.download_format || 'alac'}
-            onChange={(event) => update('download_format', event.target.value)}
-            className="relative z-10 w-full rounded-xl border border-white/[0.10] bg-black/30 px-3 py-2.5 text-sm text-gray-100 focus:border-audora-500/60 focus:outline-none"
-          >
-            {FORMAT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="glass flex items-center justify-between gap-4 rounded-2xl p-4">

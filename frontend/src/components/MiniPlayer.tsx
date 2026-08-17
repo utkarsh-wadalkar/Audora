@@ -27,7 +27,10 @@ export default function MiniPlayer() {
 
     const howl = new Howl({
       src: [`${API_BASE}/library/stream/${currentTrack.id}`],
-      format: ['m4a', 'mp4', 'aac'],
+      // FLAC is the only format Audora produces. It is also the reason the
+      // library is FLAC-only: Chromium has no ALAC decoder, so the previous
+      // .m4a downloads were fetched fine and then silently failed to decode.
+      format: ['flac'],
       html5: true, // stream instead of fully buffering
       volume,
       onload: () => setDuration(howl.duration()),
