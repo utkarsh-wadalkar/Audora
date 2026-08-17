@@ -30,8 +30,9 @@ class AuthStatus(BaseModel):
 
 # --- Download ---
 class DownloadRequest(BaseModel):
+    # No format field: Audora always downloads the lossless source and converts
+    # it to FLAC, so there is nothing for the client to choose.
     url: str
-    format: Optional[str] = None  # alac | aac | atmos; None => use settings default
 
 
 class DownloadResponse(BaseModel):
@@ -89,7 +90,6 @@ class SettingsUpdate(BaseModel):
     auto_start_wrapper: Optional[bool] = None
     backend_port: Optional[int] = None
     log_level: Optional[str] = None
-    download_format: Optional[str] = None
     setup_complete: Optional[bool] = None
     keep_wrapper_running: Optional[bool] = None
 
@@ -100,7 +100,6 @@ class SettingsOut(BaseModel):
     auto_start_wrapper: bool
     backend_port: int
     log_level: str
-    download_format: str = "alac"
     setup_complete: bool = False
 
 

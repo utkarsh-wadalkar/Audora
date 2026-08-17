@@ -66,11 +66,19 @@ export default {
           '0%, 49%': { opacity: '1' },
           '50%, 100%': { opacity: '0' },
         },
+        // Indeterminate sweep for work whose duration cannot be measured (a
+        // FLAC conversion before ffmpeg reports a count). Deliberately not a
+        // percentage: the bar shows activity without claiming progress.
+        'console-sweep': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' },
+        },
       },
       animation: {
         'slide-in-left': 'slide-in-left 520ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'rise-in': 'rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'cursor-blink': 'cursor-blink 1.1s step-end infinite',
+        'console-sweep': 'console-sweep 1.4s ease-in-out infinite',
       },
     },
   },

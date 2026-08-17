@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { api } from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAppStore } from '../store/useAppStore';
-import DownloadConsole from '../components/DownloadConsole';
+import DownloadConsole, { type DownloadStage } from '../components/DownloadConsole';
 import LogTerminal, { type LogLine } from '../components/LogTerminal';
 
 /** Bounded so a long download session cannot grow the log without limit. */
@@ -19,7 +19,6 @@ function currentClock(): string {
 
 export default function DownloadPage() {
   const [url, setUrl] = useState('');
-  const [format, setFormat] = useState('alac');
   const [isDownloading, setIsDownloading] = useState(false);
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [progress, setProgress] = useState<any>(null);
@@ -48,13 +47,16 @@ export default function DownloadPage() {
   useWebSocket('/ws/progress', {
     onMessage: (data) => {
       setProgress(data);
+      // "converting" is still an active job — the transport stays in its
+      // stop-able state so a long conversion cannot look finished or stuck.
       if (
         data?.status === 'completed' ||
         data?.status === 'failed' ||
-        data?.status === 'cancelled'
+        data?.status === 'cancelled' ||
+        data?.status === 'convert_failed'
       ) {
         setIsDownloading(false);
-      } else if (data?.status === 'downloading') {
+      } else if (data?.status === 'downloading' || data?.status === 'converting') {
         setIsDownloading(true);
       }
     },
@@ -72,7 +74,8 @@ export default function DownloadPage() {
     setLogLines([]);
     setProgress(null);
     try {
-      const response = await api.post('/download', { url, format });
+      // No format: the backend always fetches lossless and converts to FLAC.
+      const response = await api.post('/download', { url });
       if (!response.data.success) {
         setError(response.data.error || 'The download could not be started.');
         setIsDownloading(false);
@@ -98,17 +101,59 @@ export default function DownloadPage() {
     setIsDownloading(false);
   };
 
-  const percent = progress?.total_tracks
+  // --- Stage derivation ----------------------------------------------------
+  // The backend reports which of the two real stages a job is in; the UI never
+  // infers or invents one.
+  const status = progress?.status;
+  const stage: DownloadStage =
+    status === 'converting'
+      ? 'converting'
+      : status === 'convert_failed'
+      ? 'convert_failed'
+      : status === 'completed'
+      ? 'ready'
+      : status === 'downloading'
+      ? 'downloading'
+      : 'idle';
+
+  const isConverting = stage === 'converting';
+  const convertTotal = progress?.convert_total ?? 0;
+  const converted = progress?.converted ?? 0;
+
+  // Conversion shows a real converted/total percentage. Before ffmpeg has
+  // reported anything countable there is no honest number, so the console runs
+  // an indeterminate sweep rather than displaying a fabricated figure.
+  const isIndeterminate = isConverting && !convertTotal;
+
+  const percent = isConverting
+    ? convertTotal
+      ? (converted / convertTotal) * 100
+      : 0
+    : progress?.total_tracks
     ? (progress.current_track / progress.total_tracks) * 100
     : 0;
 
-  const readoutTitle = isDownloading
+  const readoutTitle = isConverting
+    ? 'Converting to FLAC'
+    : stage === 'convert_failed'
+    ? 'Conversion failed'
+    : stage === 'ready'
+    ? 'Ready to play'
+    : isDownloading
     ? progress?.track_name || 'Preparing'
-    : progress?.status === 'completed'
-    ? 'Download complete'
     : 'No signal';
 
-  const readoutDetail = isDownloading
+  const readoutDetail = isConverting
+    ? convertTotal
+      ? `Track ${converted} of ${convertTotal}`
+      : 'Preparing lossless audio'
+    : stage === 'convert_failed'
+    ? progress?.convert_failed_tracks?.length
+      ? `${progress.convert_failed_tracks.length} track(s) could not be converted`
+      : 'Could not convert the download'
+    : stage === 'ready'
+    ? 'Saved to your library'
+    : isDownloading
     ? `Track ${progress?.current_track || 0} of ${progress?.total_tracks || '?'}`
     : isValidUrl
     ? 'Ready to download'
@@ -120,13 +165,13 @@ export default function DownloadPage() {
         <DownloadConsole
           url={url}
           onUrlChange={setUrl}
-          format={format}
-          onFormatChange={setFormat}
           isDownloading={isDownloading}
           isValidUrl={isValidUrl}
+          stage={stage}
           readoutTitle={readoutTitle}
           readoutDetail={readoutDetail}
           percent={percent}
+          isIndeterminate={isIndeterminate}
           completed={progress?.completed || 0}
           failed={progress?.failed || 0}
           error={error}

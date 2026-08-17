@@ -29,6 +29,7 @@ import pytest  # noqa: E402
 
 import download_manager  # noqa: E402
 import downloader_config  # noqa: E402
+import downloader_image  # noqa: E402
 
 
 def _run(coroutine):
@@ -130,45 +131,64 @@ def test_write_config_creates_the_file(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Quality preset — the ceilings live only in the config, so it must be
-# regenerated per download rather than reused from a previous run.
+# Quality ceilings — they live only in the config, so it must be regenerated
+# per download rather than reused from a previous run. There is no longer a
+# user-facing format choice: Audora always fetches the lossless ALAC source and
+# converts it to FLAC afterwards (see flac_converter).
 # ---------------------------------------------------------------------------
 
-def test_every_ui_preset_produces_valid_yaml():
+def test_config_is_valid_yaml_with_quality_ceilings():
     yaml = pytest.importorskip("yaml")
-    for fmt in ("alac", "aac", "atmos"):
-        parsed = yaml.safe_load(downloader_config.build_config(fmt))
-        assert parsed["alac-max"], f"{fmt}: no alac-max"
-        assert parsed["atmos-max"], f"{fmt}: no atmos-max"
-        assert parsed["aac-type"], f"{fmt}: no aac-type"
+    parsed = yaml.safe_load(downloader_config.build_config())
+    assert parsed["alac-max"], "no alac-max"
+    assert parsed["atmos-max"], "no atmos-max"
+    assert parsed["aac-type"], "no aac-type"
 
 
-def test_unknown_preset_falls_back_to_alac():
-    """A bad preset must not crash a download or emit invalid YAML."""
+def test_build_config_takes_no_format_argument():
+    """The format parameter is gone; passing one must be a hard error.
+
+    Guards against a caller silently keeping a stale ``build_config("aac")``
+    that would otherwise look like it still selected a codec.
+    """
+    with pytest.raises(TypeError):
+        downloader_config.build_config("aac")  # type: ignore[call-arg]
+
+
+def test_resolve_format_always_reports_flac():
+    """The compatibility shim must never resurrect a codec choice."""
+    for requested in ("alac", "aac", "atmos", "nonsense", ""):
+        assert downloader_config.resolve_format(requested) == "flac"
+
+
+def test_conversion_is_left_to_audora():
+    """The downloader's own conversion must stay off.
+
+    Audora converts in flac_converter so every output is validated before its
+    lossless source is deleted; enabling upstream's pass (which defaults to
+    convert-keep-original:false) could destroy the source on failure.
+    """
     yaml = pytest.importorskip("yaml")
-    assert downloader_config.resolve_format("nonsense") == "alac"
-    parsed = yaml.safe_load(downloader_config.build_config("nonsense"))
-    assert parsed["alac-max"]
+    parsed = yaml.safe_load(downloader_config.build_config())
+    assert parsed["convert-after-download"] is False
 
 
 def test_quality_values_are_ones_the_binary_accepts():
     """Values are constrained by the image's own documented choices."""
     yaml = pytest.importorskip("yaml")
-    for fmt in ("alac", "aac", "atmos"):
-        parsed = yaml.safe_load(downloader_config.build_config(fmt))
-        assert parsed["alac-max"] in (192000, 96000, 48000, 44100)
-        assert parsed["atmos-max"] in (2768, 2448)
-        assert parsed["aac-type"] in ("aac-lc", "aac", "aac-binaural", "aac-downmix")
+    parsed = yaml.safe_load(downloader_config.build_config())
+    assert parsed["alac-max"] in (192000, 96000, 48000, 44100)
+    assert parsed["atmos-max"] in (2768, 2448)
+    assert parsed["aac-type"] in ("aac-lc", "aac", "aac-binaural", "aac-downmix")
 
 
-def test_rewriting_with_a_new_preset_replaces_the_old_file(tmp_path):
-    """A stale config from a previous preset must never be reused."""
-    first = downloader_config.write_config(str(tmp_path), "alac")
+def test_rewriting_replaces_the_old_file(tmp_path):
+    """A stale config from a previous run must never be reused."""
+    first = downloader_config.write_config(str(tmp_path))
     original = open(first, encoding="utf-8").read()
-    second = downloader_config.write_config(str(tmp_path), "atmos")
+    second = downloader_config.write_config(str(tmp_path))
     assert first == second, "should overwrite in place, not accumulate files"
     rewritten = open(second, encoding="utf-8").read()
-    # Whatever changed, the file must be freshly written and still valid.
     yaml = pytest.importorskip("yaml")
     assert yaml.safe_load(rewritten)
     assert len(os.listdir(tmp_path)) == 1, "left a stale config behind"
@@ -194,7 +214,7 @@ def _capture_container_config(monkeypatch, tmp_path):
     monkeypatch.setattr(
         download_manager,
         "get_settings",
-        lambda: {"downloads_path": str(tmp_path), "download_format": "alac"},
+        lambda: {"downloads_path": str(tmp_path)},
     )
     monkeypatch.setattr(download_manager, "CONFIG_DIR", str(tmp_path / "cfg"))
     return captured
@@ -206,9 +226,7 @@ def test_launch_does_not_override_working_dir(monkeypatch, tmp_path):
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
-    started = _run(
-        manager.start_download("https://music.apple.com/us/album/x/123", "alac")
-    )
+    started = _run(manager.start_download("https://music.apple.com/us/album/x/123"))
     assert started is True
     assert "working_dir" not in captured, (
         "working_dir must not be set: the binary opens config.yaml relative to "
@@ -222,7 +240,7 @@ def test_launch_mounts_a_config_over_the_broken_one(monkeypatch, tmp_path):
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
-    _run(manager.start_download("https://music.apple.com/us/album/x/123", "alac"))
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
 
     binds = {spec["bind"]: spec for spec in captured["volumes"].values()}
     assert downloader_config.CONTAINER_CONFIG_PATH in binds, (
@@ -245,33 +263,58 @@ def test_launch_writes_the_config_before_starting(monkeypatch, tmp_path):
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
-    _run(manager.start_download("https://music.apple.com/us/album/x/123", "alac"))
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
 
     assert (config_dir / "config.yaml").is_file()
     assert captured  # container really was started
 
 
-def test_launch_regenerates_the_config_for_the_selected_preset(monkeypatch, tmp_path):
-    """Point 5: fresh per download, never stale from the previous preset."""
+def test_launch_regenerates_the_config_every_download(monkeypatch, tmp_path):
+    """Point 5: fresh per download, never stale from a previous run."""
     written = []
     real_write = downloader_config.write_config
 
-    def spy_write(directory, fmt=downloader_config.DEFAULT_FORMAT):
-        written.append(fmt)
-        return real_write(directory, fmt)
+    def spy_write(directory):
+        written.append(directory)
+        return real_write(directory)
 
     monkeypatch.setattr(downloader_config, "write_config", spy_write)
     _capture_container_config(monkeypatch, tmp_path)
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
-    _run(manager.start_download("https://music.apple.com/us/album/x/123", "atmos"))
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
     manager._is_running = False
-    _run(manager.start_download("https://music.apple.com/us/album/x/123", "aac"))
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
 
-    assert written == ["atmos", "aac"], (
-        f"config not regenerated per download with the chosen preset: {written}"
-    )
+    assert len(written) == 2, f"config not regenerated per download: {written}"
+
+
+def test_launch_uses_audoras_own_downloader_image(monkeypatch, tmp_path):
+    """Downloads must run the image that carries ffmpeg.
+
+    The upstream image alone cannot convert to FLAC, and an unconverted ALAC
+    download is exactly the file Electron cannot play.
+    """
+    captured = _capture_container_config(monkeypatch, tmp_path)
+    manager = download_manager.DownloadManager()
+    monkeypatch.setattr(manager, "_stream_output", _noop_stream)
+
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
+
+    assert captured["image"] == downloader_image.AUDORA_DOWNLOADER_IMAGE
+
+
+def test_launch_passes_no_codec_flag(monkeypatch, tmp_path):
+    """--aac / --atmos would fetch a lossy or spatial mix, not the lossless source."""
+    captured = _capture_container_config(monkeypatch, tmp_path)
+    manager = download_manager.DownloadManager()
+    monkeypatch.setattr(manager, "_stream_output", _noop_stream)
+
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
+
+    assert "--aac" not in captured["command"]
+    assert "--atmos" not in captured["command"]
 
 
 def test_launch_keeps_host_networking(monkeypatch, tmp_path):
@@ -280,7 +323,7 @@ def test_launch_keeps_host_networking(monkeypatch, tmp_path):
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
-    _run(manager.start_download("https://music.apple.com/us/album/x/123", "alac"))
+    _run(manager.start_download("https://music.apple.com/us/album/x/123"))
 
     assert captured["network_mode"] == "host"
     assert "ports" not in captured, "ports + host networking is rejected by Docker"

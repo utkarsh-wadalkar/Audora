@@ -149,6 +149,8 @@ Session.vim
 **/rootfs/data/
 wrapper/rootfs/data/
 .claude/
+.codex/
+.impeccable/
 
 # Downloaded music files
 downloads/

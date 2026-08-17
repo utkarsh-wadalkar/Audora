@@ -1,11 +1,18 @@
-"""Scan the downloads folder, extract M4A metadata, persist to SQLite,
-and cache album art as PNG.
+"""Scan the downloads folder, extract FLAC metadata, persist to SQLite,
+and cache album art.
+
+FLAC is the canonical playable format. Audora downloads the lossless ALAC
+source and converts it to FLAC (see ``flac_converter``) before a track is
+reported as ready, because Chromium — and therefore Electron — has no ALAC
+decoder: an ``.m4a`` would be listed here and then silently fail to play. So
+only ``.flac`` is scanned, and a leftover ``.m4a`` is deliberately ignored
+rather than surfaced as a track the player cannot open.
 """
 import hashlib
 import os
 from typing import Dict, List, Optional
 
-from mutagen.mp4 import MP4
+import mutagen
 
 from settings import get_settings
 from logger import get_logger
@@ -14,6 +21,15 @@ logger = get_logger("library")
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _ART_DIR = os.path.join(_BASE_DIR, "data", "album_art")
+
+TRACK_EXTENSION = ".flac"
+TRACK_FORMAT = "flac"
+
+# Vorbis-comment keys (FLAC) and their MP4-atom equivalents. Both are read so a
+# track keeps its tags if it ever arrives in a different container.
+_TITLE_KEYS = ("title", "\xa9nam")
+_ARTIST_KEYS = ("artist", "\xa9ART")
+_ALBUM_KEYS = ("album", "\xa9alb")
 
 
 class LibraryManager:
@@ -35,13 +51,13 @@ class LibraryManager:
         os.makedirs(_ART_DIR, exist_ok=True)
 
         for root, _dirs, files in os.walk(downloads):
-            for f in files:
-                if f.lower().endswith(".m4a"):
-                    path = os.path.join(root, f)
+            for filename in files:
+                if filename.lower().endswith(TRACK_EXTENSION):
+                    path = os.path.join(root, filename)
                     try:
                         tracks.append(self._extract_metadata(path))
-                    except Exception as e:
-                        logger.warning(f"Failed to read metadata for {path}: {e}")
+                    except Exception as metadata_error:
+                        logger.warning(f"Failed to read metadata for {path}: {metadata_error}")
 
         self._tracks = tracks
         self._persist(tracks)
@@ -49,23 +65,35 @@ class LibraryManager:
         return tracks
 
     def _extract_metadata(self, path: str) -> Dict:
-        audio = MP4(path)
+        audio = mutagen.File(path)
+        if audio is None:
+            raise ValueError(f"Unrecognised audio file: {path}")
         tags = audio.tags or {}
 
-        def first(key: str, default: str) -> str:
-            val = tags.get(key)
-            if val and len(val) > 0:
-                return str(val[0])
+        def first_tag(keys, default: str) -> str:
+            """First present value among ``keys``.
+
+            Vorbis comments and MP4 atoms both return lists, but a Vorbis
+            value is a plain str while an MP4 atom may be bytes, so the value is
+            normalised rather than assumed.
+            """
+            for key in keys:
+                value = tags.get(key)
+                if value:
+                    entry = value[0] if isinstance(value, list) else value
+                    if isinstance(entry, bytes):
+                        return entry.decode("utf-8", errors="replace")
+                    return str(entry)
             return default
 
-        title = first("\xa9nam", os.path.splitext(os.path.basename(path))[0])
-        artist = first("\xa9ART", "Unknown Artist")
-        album = first("\xa9alb", "Unknown Album")
+        title = first_tag(_TITLE_KEYS, os.path.splitext(os.path.basename(path))[0])
+        artist = first_tag(_ARTIST_KEYS, "Unknown Artist")
+        album = first_tag(_ALBUM_KEYS, "Unknown Album")
 
         duration = int(audio.info.length) if audio.info else 0
         size = os.path.getsize(path)
 
-        art_path = self._cache_art(path, tags)
+        art_path = self._cache_art(path, audio)
 
         return {
             "file_path": path,
@@ -74,7 +102,7 @@ class LibraryManager:
             "album": album,
             "duration": duration,
             "file_size": size,
-            "format": "m4a",
+            "format": TRACK_FORMAT,
             "has_art": bool(art_path),
         }
 
@@ -83,22 +111,45 @@ class LibraryManager:
         folder = os.path.dirname(track_path).encode("utf-8", errors="replace")
         return hashlib.md5(folder).hexdigest()
 
-    def _cache_art(self, track_path: str, tags) -> Optional[str]:
-        covers = tags.get("covr") if tags else None
-        if not covers:
+    def _cache_art(self, track_path: str, audio) -> Optional[str]:
+        """Cache the track's embedded cover art, one file per album folder.
+
+        FLAC stores artwork in PICTURE metadata blocks (``FLAC.pictures``),
+        which is a different API from the MP4 ``covr`` atom — both are handled
+        so the art survives whichever container a file arrives in.
+
+        The cached file keeps a ``.png`` extension for compatibility with
+        ``get_art_path``, which recomputes the same name. The bytes are usually
+        JPEG (the downloader is configured with ``cover-format: jpg``); the art
+        endpoint sniffs the real type rather than trusting the extension.
+        """
+        data = self._extract_cover_bytes(audio)
+        if not data:
             return None
         try:
-            data = bytes(covers[0])
             # Tracks in the same folder (same album) share one art file.
             key = self._art_key(track_path)
             out = os.path.join(_ART_DIR, f"{key}.png")
             if not os.path.exists(out):
-                with open(out, "wb") as fh:
-                    fh.write(data)
+                with open(out, "wb") as handle:
+                    handle.write(data)
             return out
-        except Exception as e:
-            logger.debug(f"art cache failed for {track_path}: {e}")
+        except Exception as art_error:
+            logger.debug(f"art cache failed for {track_path}: {art_error}")
             return None
+
+    @staticmethod
+    def _extract_cover_bytes(audio) -> Optional[bytes]:
+        """Embedded cover bytes from a FLAC PICTURE block or an MP4 covr atom."""
+        pictures = getattr(audio, "pictures", None)
+        if pictures:
+            return bytes(pictures[0].data)
+
+        tags = audio.tags or {}
+        covers = tags.get("covr") if hasattr(tags, "get") else None
+        if covers:
+            return bytes(covers[0])
+        return None
 
     # --- Persistence ---
     def _persist(self, tracks: List[Dict]) -> None:
@@ -112,23 +163,23 @@ class LibraryManager:
         try:
             db.query(LibraryTrack).delete()
             now = datetime.utcnow()
-            for t in tracks:
+            for track in tracks:
                 db.add(
                     LibraryTrack(
-                        file_path=t["file_path"],
-                        title=t.get("title"),
-                        artist=t.get("artist"),
-                        album=t.get("album"),
-                        duration=t.get("duration", 0),
-                        file_size=t.get("file_size", 0),
-                        format=t.get("format", "m4a"),
+                        file_path=track["file_path"],
+                        title=track.get("title"),
+                        artist=track.get("artist"),
+                        album=track.get("album"),
+                        duration=track.get("duration", 0),
+                        file_size=track.get("file_size", 0),
+                        format=track.get("format", TRACK_FORMAT),
                         last_scanned=now,
                     )
                 )
             db.commit()
-        except Exception as e:
+        except Exception as persist_error:
             db.rollback()
-            logger.warning(f"Failed to persist library: {e}")
+            logger.warning(f"Failed to persist library: {persist_error}")
         finally:
             db.close()
 
@@ -148,29 +199,29 @@ class LibraryManager:
             rows = db.query(LibraryTrack).all()
             self._tracks = [
                 {
-                    "id": r.id,
-                    "file_path": r.file_path,
-                    "title": r.title,
-                    "artist": r.artist,
-                    "album": r.album,
-                    "duration": r.duration,
-                    "file_size": r.file_size,
-                    "format": r.format,
+                    "id": row.id,
+                    "file_path": row.file_path,
+                    "title": row.title,
+                    "artist": row.artist,
+                    "album": row.album,
+                    "duration": row.duration,
+                    "file_size": row.file_size,
+                    "format": row.format,
                 }
-                for r in rows
+                for row in rows
             ]
             return self._tracks
         finally:
             db.close()
 
     def get_track_by_id(self, track_id: int) -> Optional[Dict]:
-        for t in self.get_all_tracks():
-            if t.get("id") == track_id:
-                return t
+        for track in self.get_all_tracks():
+            if track.get("id") == track_id:
+                return track
         return None
 
     def get_art_path(self, track: Dict) -> Optional[str]:
-        """Return the cached album-art PNG path for a track, if it exists."""
+        """Return the cached album-art path for a track, if it exists."""
         if not track or not track.get("file_path"):
             return None
         key = self._art_key(track["file_path"])
@@ -178,31 +229,31 @@ class LibraryManager:
         return candidate if os.path.exists(candidate) else None
 
     def get_artists(self) -> List[str]:
-        return sorted({t["artist"] for t in self.get_all_tracks() if t.get("artist")})
+        return sorted({track["artist"] for track in self.get_all_tracks() if track.get("artist")})
 
     def get_albums(self) -> List[Dict]:
         albums: Dict = {}
-        for t in self.get_all_tracks():
-            key = (t.get("artist"), t.get("album"))
+        for track in self.get_all_tracks():
+            key = (track.get("artist"), track.get("album"))
             if key not in albums:
                 albums[key] = {
-                    "artist": t.get("artist"),
-                    "album": t.get("album"),
+                    "artist": track.get("artist"),
+                    "album": track.get("album"),
                     "tracks": [],
                 }
-            albums[key]["tracks"].append(t)
+            albums[key]["tracks"].append(track)
         return list(albums.values())
 
     def search(self, query: str) -> List[Dict]:
-        q = (query or "").lower().strip()
-        if not q:
+        normalised_query = (query or "").lower().strip()
+        if not normalised_query:
             return self.get_all_tracks()
         return [
-            t
-            for t in self.get_all_tracks()
-            if q in (t.get("title") or "").lower()
-            or q in (t.get("artist") or "").lower()
-            or q in (t.get("album") or "").lower()
+            track
+            for track in self.get_all_tracks()
+            if normalised_query in (track.get("title") or "").lower()
+            or normalised_query in (track.get("artist") or "").lower()
+            or normalised_query in (track.get("album") or "").lower()
         ]
 
 

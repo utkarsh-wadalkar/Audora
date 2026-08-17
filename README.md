@@ -8,7 +8,7 @@ Download your 🍎 Music library in **lossless quality** and keep it forever —
 
 ## What is Audora?
 
-Audora lets you download any 🍎 Music album, playlist, or track in **ALAC (lossless)** format — the highest quality lossless audio available. Your downloads are saved as `.m4a` files that play in VLC, foobar2000, and most modern music players.
+Audora lets you download any 🍎 Music album, playlist, or track in **FLAC (lossless)** format — full lossless quality, with no loss compared to the original. Your downloads are saved as `.flac` files that play in Audora itself, plus VLC, foobar2000, and most modern music players.
 
 ---
 
@@ -104,8 +104,8 @@ Inside, they're organised like this:
 MusicDownload/
 └── Michael Jackson/
     └── Thriller/
-        ├── 01. Wanna Be Startin' Somethin'.m4a
-        ├── 02. Baby Be Mine.m4a
+        ├── 01. Wanna Be Startin' Somethin'.flac
+        ├── 02. Baby Be Mine.flac
         └── ...
 ```
 
@@ -115,7 +115,10 @@ You can change the download folder in **Settings** inside Audora.
 
 ## Playing Your Downloads
 
-Your files are `.m4a` (lossless ALAC). They play in Audora itself:
+Your files are `.flac` (lossless). Audora downloads the lossless source from
+Apple Music and converts it to FLAC automatically — you'll see a short
+"Converting to FLAC" stage after the download finishes, and the track is
+playable the moment it completes. They play in Audora itself:
 Play tracks directly inside Audora using the built-in player.
 But you can also use
 | Player | Where to get it |
@@ -161,7 +164,7 @@ Not yet. Windows only for now.
 Yes — paste a playlist URL and Audora will download every track in it.
 
 **How much space do I need?**
-Lossless ALAC files are roughly **30–50 MB per track**.
+Lossless FLAC files are roughly **30–50 MB per track**.
 
 ---
 

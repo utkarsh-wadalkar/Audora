@@ -1,24 +1,27 @@
-import { Download, X, ListPlus, Rss } from 'lucide-react';
+import { Download, X, ListPlus, Rss, Music4 } from 'lucide-react';
 
-const FORMAT_PRESETS = [
-  { value: 'alac', label: 'ALAC', caption: 'Lossless' },
-  { value: 'aac', label: 'AAC', caption: 'Compact' },
-  { value: 'atmos', label: 'ATMOS', caption: 'Spatial' },
-];
+/** The two real stages of a job, plus its terminal outcomes. */
+export type DownloadStage = 'idle' | 'downloading' | 'converting' | 'ready' | 'convert_failed';
 
 export interface DownloadConsoleProps {
   url: string;
   onUrlChange: (value: string) => void;
-  format: string;
-  onFormatChange: (value: string) => void;
   isDownloading: boolean;
   isValidUrl: boolean;
+  /** Which stage the job is in — drives the readout's mode, not just its text. */
+  stage: DownloadStage;
   /** Headline for the readout: current track, or the idle/standby state. */
   readoutTitle: string;
   /** Sub-line under the readout headline, e.g. "3 / 12" or a hint. */
   readoutDetail: string;
   /** 0–100. Drives the tuning scale fill. */
   percent: number;
+  /**
+   * True while converting with no meaningful count yet. The scale animates
+   * instead of showing a number, because inventing a conversion percentage
+   * would be a lie about work ffmpeg has not reported.
+   */
+  isIndeterminate: boolean;
   completed: number;
   failed: number;
   error: string;
@@ -30,19 +33,24 @@ export interface DownloadConsoleProps {
 /**
  * The download console: an analog receiver whose controls are the real download
  * controls. The metaphor is load-bearing, not decorative — the readout shows
- * actual track progress, the preset buttons are the real format choice, and the
- * transport button starts and stops the actual job.
+ * actual track progress and the transport button starts and stops the actual
+ * job.
+ *
+ * There is no format selector: Audora always fetches the lossless source and
+ * converts it to FLAC, so the only thing the user chooses is what to download.
+ * The freed space carries the stage readout instead, which is the information
+ * a format toggle never gave them.
  */
 export default function DownloadConsole({
   url,
   onUrlChange,
-  format,
-  onFormatChange,
   isDownloading,
   isValidUrl,
+  stage,
   readoutTitle,
   readoutDetail,
   percent,
+  isIndeterminate,
   completed,
   failed,
   error,
@@ -50,6 +58,22 @@ export default function DownloadConsole({
   onQueue,
   onCancel,
 }: DownloadConsoleProps) {
+  const isConverting = stage === 'converting';
+  const isReady = stage === 'ready';
+  const convertFailed = stage === 'convert_failed';
+
+  // The readout's mode label. Named for what is actually happening so the user
+  // can tell a long conversion apart from a stalled download.
+  const modeLabel = isConverting
+    ? 'Converting'
+    : isReady
+    ? 'Ready'
+    : convertFailed
+    ? 'Conversion failed'
+    : isDownloading
+    ? 'Receiving'
+    : 'Standby';
+
   return (
     <div className="console-shell flex w-[26rem] shrink-0 flex-col gap-5 rounded-3xl border border-black/50 p-5 shadow-console">
       <div className="flex items-center justify-between">
@@ -59,21 +83,29 @@ export default function DownloadConsole({
         </div>
         <Rss
           size={16}
-          className={isDownloading ? 'text-console-readoutText' : 'text-gray-500'}
+          className={isDownloading || isConverting ? 'text-console-readoutText' : 'text-gray-500'}
         />
       </div>
 
       {/* Recessed LCD readout: real state, monospaced because it is measurement. */}
       <div className="console-readout rounded-xl px-4 py-3.5">
         <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-console-readoutText/55">
-          {isDownloading ? 'Receiving' : 'Standby'}
+          {modeLabel}
         </p>
-        <p className="mt-1.5 truncate font-mono text-base text-console-readoutText">
+        <p
+          className={`mt-1.5 truncate font-mono text-base ${
+            convertFailed ? 'text-rose-300' : 'text-console-readoutText'
+          }`}
+        >
           {readoutTitle}
         </p>
         <div className="mt-3 flex items-baseline justify-between font-mono text-[10px] text-console-readoutText/70">
           <span className="truncate">{readoutDetail}</span>
-          <span className="shrink-0 tabular-nums">{Math.round(percent)}%</span>
+          {/* No number while indeterminate — an invented percentage would
+              misrepresent work the backend cannot measure. */}
+          <span className="shrink-0 tabular-nums">
+            {isIndeterminate ? '' : `${Math.round(percent)}%`}
+          </span>
         </div>
 
         {/* Tuning scale — tick marks with a filled band showing progress. */}
@@ -82,10 +114,18 @@ export default function DownloadConsole({
             className="absolute inset-x-0 top-2 h-1.5 rounded-full bg-black/50"
             aria-hidden
           />
-          <div
-            className="absolute top-2 h-1.5 rounded-full bg-console-readoutText/70 transition-[width] duration-500 ease-out"
-            style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-          />
+          {isIndeterminate ? (
+            <div className="absolute inset-x-0 top-2 h-1.5 overflow-hidden rounded-full">
+              <div className="h-full w-1/3 animate-console-sweep rounded-full bg-console-readoutText/70" />
+            </div>
+          ) : (
+            <div
+              className={`absolute top-2 h-1.5 rounded-full transition-[width] duration-500 ease-out ${
+                convertFailed ? 'bg-rose-400/70' : 'bg-console-readoutText/70'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+            />
+          )}
           <div
             className="absolute inset-x-0 bottom-0 flex justify-between px-px"
             aria-hidden
@@ -124,33 +164,13 @@ export default function DownloadConsole({
         />
       </label>
 
-      <div className="space-y-1.5">
-        <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-gray-400">
-          Quality preset
-        </span>
-        <div className="grid grid-cols-3 gap-2">
-          {FORMAT_PRESETS.map((preset) => {
-            const selected = preset.value === format;
-            return (
-              <button
-                key={preset.value}
-                onClick={() => onFormatChange(preset.value)}
-                aria-pressed={selected}
-                className={`rounded-xl border px-2 py-2.5 transition-colors duration-300 ease-out ${
-                  selected
-                    ? 'border-audora-400/50 bg-audora-500/20 text-gray-100'
-                    : 'border-black/40 bg-black/25 text-gray-400 hover:bg-black/35 hover:text-gray-200'
-                }`}
-              >
-                <span className="block font-mono text-[11px] font-medium">
-                  {preset.label}
-                </span>
-                <span className="mt-0.5 block text-[9px] text-gray-500">
-                  {preset.caption}
-                </span>
-              </button>
-            );
-          })}
+      {/* Replaces the old quality-preset row: the output is always the same, so
+          this states it once instead of asking a question with one answer. */}
+      <div className="flex items-center gap-2.5 rounded-xl border border-black/40 bg-black/25 px-3.5 py-2.5">
+        <Music4 size={15} className="shrink-0 text-audora-400" />
+        <div className="min-w-0">
+          <p className="font-mono text-[11px] font-medium text-gray-200">FLAC</p>
+          <p className="text-[9px] text-gray-500">Lossless · converted automatically</p>
         </div>
       </div>
 
@@ -160,7 +180,7 @@ export default function DownloadConsole({
             onClick={onCancel}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500/90 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-rose-500 active:scale-[0.99]"
           >
-            <X size={16} /> Stop download
+            <X size={16} /> {isConverting ? 'Stop converting' : 'Stop download'}
           </button>
         ) : (
           <button

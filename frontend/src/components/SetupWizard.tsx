@@ -32,6 +32,12 @@ const IMAGE_STEPS: { id: string; label: string; narration: string }[] = [
       'Downloading the track downloader — this is the component that fetches your music.',
   },
   {
+    id: 'build_downloader',
+    label: 'FLAC support',
+    narration:
+      'Preparing FLAC conversion — this is what makes your downloads playable in Audora.',
+  },
+  {
     id: 'build_wrapper',
     label: 'wrapper image',
     narration:
@@ -91,6 +97,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   const [authMsg, setAuthMsg] = useState('');
   const [authErr, setAuthErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showingWrapperLogs, setShowingWrapperLogs] = useState(false);
 
   // --- No-late-join-replay seed (Workstream C flag 1) ----------------------
   // `/ws/setup` never replays state that already happened, so on mount AND on
@@ -125,6 +132,10 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   // drop-and-resume can redeliver the frame that was in flight. Keying on
   // step+status+message means an identical consecutive frame is not repeated.
   const lastLineKeyRef = useRef<string>('');
+  const wrapperLogSequenceRef = useRef(0);
+  const wrapperLogStartSequenceRef = useRef(Number.MAX_SAFE_INTEGER);
+  const wrapperLogRenderedSequenceRef = useRef(0);
+  const wrapperLogActiveRef = useRef(false);
 
   const appendTerminalLine = (event: SetupProgressEvent) => {
     const text = event.message;
@@ -153,6 +164,31 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     ]);
   };
 
+  const appendWrapperLogLine = (sequence: number, text: string) => {
+    if (
+      sequence <= wrapperLogStartSequenceRef.current ||
+      sequence <= wrapperLogRenderedSequenceRef.current
+    ) {
+      return;
+    }
+    wrapperLogRenderedSequenceRef.current = sequence;
+    const now = new Date();
+    const timestamp = [now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map((part) => String(part).padStart(2, '0'))
+      .join(':');
+    setTerminalLines((prev) => [
+      ...prev.slice(-(TERMINAL_MAX_LINES - 1)),
+      {
+        id: (lineIdRef.current += 1),
+        timestamp,
+        step: 'wrapper',
+        status: 'running',
+        text,
+        raw: true,
+      },
+    ]);
+  };
+
   // Subscribe to the live event stream and funnel every event into the store.
   // On (re)connect (readyState → 'open') we re-seed from REST so no state is
   // lost across a drop — the seed only fills gaps and never downgrades a live
@@ -162,7 +198,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       if (data?.type === 'setup_progress') {
         const event = data as SetupProgressEvent;
         applySetupEvent(event);
-        appendTerminalLine(event);
+        if (!wrapperLogActiveRef.current) appendTerminalLine(event);
       }
     },
   });
@@ -193,6 +229,24 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         setBusy(false);
       } else if (data?.type === 'auth_progress') {
         setAuthMsg(data.message);
+      } else if (data?.type === 'auth_credentials_required') {
+        setNeed2fa(false);
+        setAuthMsg(data.message);
+        setBusy(false);
+      }
+    },
+  });
+
+  useWebSocket('/ws/wrapper', {
+    onMessage: (data) => {
+      if (data?.type !== 'wrapper_log') return;
+      const sequence = Number(data.sequence) || 0;
+      wrapperLogSequenceRef.current = Math.max(
+        wrapperLogSequenceRef.current,
+        sequence,
+      );
+      if (wrapperLogActiveRef.current) {
+        appendWrapperLogLine(sequence, String(data.line ?? ''));
       }
     },
   });
@@ -220,6 +274,44 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     setBusy(true);
     setAuthMsg('Connecting to Apple Music...');
     await api.post('/auth/login', { email, password });
+  };
+
+  const startWrapperForSetup = async () => {
+    wrapperLogStartSequenceRef.current = wrapperLogSequenceRef.current;
+    wrapperLogRenderedSequenceRef.current = wrapperLogSequenceRef.current;
+    wrapperLogActiveRef.current = true;
+    setShowingWrapperLogs(true);
+    lastLineKeyRef.current = '';
+    setTerminalLines([]);
+    setScreen('signin');
+    setNeed2fa(false);
+    setAuthErr('');
+    setAuthMsg('Checking the saved Apple Music session...');
+    setBusy(true);
+
+    try {
+      const response = await api.post('/setup/wrapper', {}, { timeout: 65000 });
+      const state = response.data?.data?.state;
+      setBusy(false);
+      if (state === 'authenticated') {
+        setAuthMsg('Saved session detected.');
+        setScreen('done');
+      } else if (state === 'needs_2fa') {
+        setNeed2fa(true);
+        setAuthMsg('Enter your 6-digit verification code');
+      } else if (state === 'needs_credentials') {
+        setNeed2fa(false);
+        setAuthMsg('Sign in once; the wrapper will cache this session locally.');
+      } else {
+        setAuthErr('The Apple Music wrapper did not reach a usable state.');
+      }
+    } catch (error: any) {
+      setBusy(false);
+      setAuthErr(
+        error?.response?.data?.error ||
+          'Could not start the Apple Music wrapper. Check the live log for details.',
+      );
+    }
   };
 
   const submit2fa = async () => {
@@ -264,9 +356,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
   // --- Derived image-step view -------------------------------------------
   const downloaderStep = setupSteps['pull_downloader'];
-  const wrapperStep = setupSteps['build_wrapper'];
-  const bothDone =
-    downloaderStep?.status === 'done' && wrapperStep?.status === 'done';
+  // Gate on EVERY image step rather than a hand-listed pair, so adding a step
+  // to IMAGE_STEPS cannot let the wizard advance before that step finishes.
+  const bothDone = IMAGE_STEPS.every(
+    (step) => setupSteps[step.id]?.status === 'done',
+  );
 
   // The single step (if any) currently in a surfaced failure state. Only the
   // active/first failed step drives the failure UI — exactly one recovery path.
@@ -532,7 +626,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             )}
 
             <button
-              onClick={() => setScreen('signin')}
+              onClick={startWrapperForSetup}
               disabled={!bothDone}
               className="w-full rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
             >
@@ -544,11 +638,17 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         {screen === 'signin' && (
           <div className="relative z-10 space-y-4">
             <h2 className="text-xl font-semibold tracking-tight text-gray-100">
-              Sign in to Apple Music
+              {busy && !need2fa ? 'Starting Apple Music' : 'Sign in to Apple Music'}
             </h2>
             {authErr && <p className="text-sm text-rose-300">{authErr}</p>}
-            {!need2fa ? (
+            {busy && !email && !password && !need2fa ? (
+              <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-black/25 p-4 text-sm text-gray-400">
+                <Loader2 size={15} className="animate-spin text-audora-300" />
+                {authMsg || 'Waiting for the wrapper...'}
+              </div>
+            ) : !need2fa ? (
               <>
+                {authMsg && <p className="text-sm text-gray-400">{authMsg}</p>}
                 <input
                   type="email"
                   value={email}
@@ -634,6 +734,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         {screen !== 'welcome' && (
           <SetupTerminalPanel
             lines={terminalLines}
+            title={showingWrapperLogs ? 'audora-wrapper log' : 'Setup log'}
             className="hidden max-h-[70vh] min-w-0 flex-1 lg:flex"
           />
         )}

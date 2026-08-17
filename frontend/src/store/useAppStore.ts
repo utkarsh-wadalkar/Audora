@@ -53,7 +53,7 @@ export interface SetupProgressEvent {
 
 /** Shape of the `images` block inside `GET /setup/status`. */
 export interface SetupStatusSnapshot {
-  images?: { downloader?: boolean; wrapper?: boolean };
+  images?: { downloader?: boolean; audora_downloader?: boolean; wrapper?: boolean };
 }
 
 interface AppState {
@@ -82,7 +82,7 @@ interface AppState {
   seedSetupSteps: (snapshot: SetupStatusSnapshot) => void;
   openLogin: () => void;
   closeLogin: () => void;
-  startDownload: (url: string, format?: string) => Promise<boolean>;
+  startDownload: (url: string) => Promise<boolean>;
   cancelDownload: () => Promise<void>;
   addToQueue: (url: string) => Promise<void>;
   setCurrentTrack: (track: Track | null) => void;
@@ -173,13 +173,16 @@ export const useAppStore = create<AppState>((set) => ({
           : existing ?? { status: 'pending', message: '' };
       };
       seedDone('pull_downloader', images.downloader, 'Already downloaded');
+      seedDone('build_downloader', images.audora_downloader, 'Already prepared');
       seedDone('build_wrapper', images.wrapper, 'Already built');
       return { setupSteps: merged };
     }),
 
-  startDownload: async (url, format) => {
+  startDownload: async (url) => {
     try {
-      const res = await api.post('/download', { url, format });
+      // No format: Audora always downloads the lossless source and converts it
+      // to FLAC before reporting the track ready.
+      const res = await api.post('/download', { url });
       return !!res.data.success;
     } catch {
       return false;

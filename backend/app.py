@@ -69,6 +69,7 @@ log_manager = ConnectionManager()
 progress_manager = ConnectionManager()
 auth_ws_manager = ConnectionManager()
 setup_ws_manager = ConnectionManager()
+wrapper_log_ws_manager = ConnectionManager()
 
 # The event loop captured at startup so thread callbacks can schedule onto it.
 _loop: asyncio.AbstractEventLoop | None = None
@@ -76,7 +77,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 def _broadcast_from_thread(manager: ConnectionManager, message: dict) -> None:
     """Safely schedule a broadcast from any thread onto the main loop."""
-    if _loop is None:
+    if _loop is None or _loop.is_closed():
         return
     try:
         asyncio.run_coroutine_threadsafe(manager.broadcast(message), _loop)
@@ -94,6 +95,14 @@ def progress_callback(data: dict) -> None:
 
 def auth_callback(event: dict) -> None:
     _broadcast_from_thread(auth_ws_manager, event)
+
+
+def wrapper_log_callback(event: dict) -> None:
+    """Forward each raw wrapper line without summarizing or reshaping it."""
+    _broadcast_from_thread(
+        wrapper_log_ws_manager,
+        {"type": "wrapper_log", **event},
+    )
 
 
 # =============================================================================
@@ -162,12 +171,36 @@ def setup_callback(event: dict) -> None:
     _broadcast_from_thread(setup_ws_manager, event)
 
 
+def rescan_library_after_download(summary: dict) -> None:
+    """Refresh the library as soon as a download's FLAC files are ready.
+
+    Without this the user must press Rescan before a finished track appears,
+    which contradicts the "Ready to play -> Play" flow. Only a fully successful
+    run is scanned: a ``convert_failed`` run has no playable output to add.
+    """
+    if summary.get("status") != "completed":
+        return
+    try:
+        lib_mgr.scan_library()
+    except Exception as scan_error:
+        # A failed rescan must never turn a good download into a failure; the
+        # user can still refresh manually.
+        logger.warning(f"Post-download library scan failed: {scan_error}")
+
+
 # Register callbacks once at import time.
 register_log_callback(log_callback)
 wrapper_mgr.register_auth_callback(auth_callback)
+wrapper_mgr.register_log_callback(wrapper_log_callback)
 dl_mgr.register_progress_callback(progress_callback)
 dl_mgr.register_completion_callback(queue_processor.on_download_complete)
+dl_mgr.register_completion_callback(rescan_library_after_download)
 setup_mgr.register_progress_callback(setup_callback)
+
+
+def should_auto_start_wrapper(settings: dict, setup_complete: bool) -> bool:
+    """Auto-start only after the first-run wizard owns its required start."""
+    return bool(settings.get("auto_start_wrapper", True) and setup_complete)
 
 
 @asynccontextmanager
@@ -186,18 +219,22 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Auto-start the wrapper if we have a session and the setting is on.
-    if settings.get("auto_start_wrapper", True) and auth_mgr.is_logged_in():
+    # During first-run setup the images-step Continue action owns the first
+    # wrapper start. Completed installations auto-start and wait for the
+    # wrapper's real log-detected state so cached credentials are reused.
+    if should_auto_start_wrapper(settings, setup_mgr.is_complete()):
         if docker_mgr.is_docker_running():
             if wrapper_mgr.is_wrapper_ready():
                 # Already up and serving from a previous run — reuse it rather
                 # than tearing it down, which would kill any live download.
                 logger.info("Wrapper already running; reusing it")
             else:
-                logger.info("Auto-starting wrapper (session exists)")
-                wrapper_mgr.start_wrapper()
-                # Await readiness without blocking the loop.
-                asyncio.create_task(_await_wrapper_ready())
+                logger.info("Auto-starting wrapper and checking cached authentication")
+                if wrapper_mgr.start_wrapper():
+                    state = await asyncio.get_running_loop().run_in_executor(
+                        None, wrapper_mgr.wait_for_setup_state, 60
+                    )
+                    logger.info(f"Wrapper startup state: {state}")
         else:
             logger.info("Docker not running; skipping wrapper auto-start")
 
@@ -217,12 +254,6 @@ async def lifespan(app: FastAPI):
         logger.info("Leaving wrapper running for the next start")
     else:
         wrapper_mgr.stop_wrapper()
-
-
-async def _await_wrapper_ready() -> None:
-    loop = asyncio.get_running_loop()
-    ready = await loop.run_in_executor(None, wrapper_mgr.wait_until_ready, 60)
-    logger.info(f"Wrapper ready: {ready}")
 
 
 app = FastAPI(title="Audora Backend", version="1.5.2", lifespan=lifespan)
@@ -316,7 +347,7 @@ async def start_download(req: DownloadRequest):
         return ApiResponse(success=False, error="Docker Desktop is not running")
     if not wrapper_mgr.is_wrapper_ready():
         wrapper_mgr.start_wrapper()
-    success = await dl_mgr.start_download(req.url, req.format)
+    success = await dl_mgr.start_download(req.url)
     return ApiResponse(
         success=success,
         data={"started": success},
@@ -438,14 +469,17 @@ def search_library(q: str = ""):
 
 @app.get("/library/stream/{track_id}")
 def stream_track(track_id: int):
+    """Serve a library track for playback.
+
+    ``FileResponse`` handles Range requests itself (206 + ``Content-Range``),
+    which is what makes seeking and scrubbing work — so no ``filename`` is
+    passed: that sets ``Content-Disposition: attachment``, which is wrong for a
+    streaming endpoint.
+    """
     track = lib_mgr.get_track_by_id(track_id)
     if not track or not os.path.exists(track["file_path"]):
         raise HTTPException(status_code=404, detail="Track not found")
-    return FileResponse(
-        track["file_path"],
-        media_type="audio/mp4",
-        filename=os.path.basename(track["file_path"]),
-    )
+    return FileResponse(track["file_path"], media_type="audio/flac")
 
 
 @app.get("/library/art/{track_id}")
@@ -456,7 +490,27 @@ def track_art(track_id: int):
     art_path = lib_mgr.get_art_path(track)
     if not art_path or not os.path.exists(art_path):
         raise HTTPException(status_code=404, detail="No album art")
-    return FileResponse(art_path, media_type="image/png")
+    return FileResponse(art_path, media_type=_sniff_image_type(art_path))
+
+
+def _sniff_image_type(path: str) -> str:
+    """Detect the real image type from its magic bytes.
+
+    The cache file is named ``.png`` but the embedded artwork is usually JPEG
+    (the downloader is configured with ``cover-format: jpg``), so the extension
+    cannot be trusted. Browsers sniff anyway; sending the correct type keeps the
+    response honest.
+    """
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(8)
+    except OSError:
+        return "application/octet-stream"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    return "application/octet-stream"
 
 
 # --- Logs ---
@@ -500,6 +554,32 @@ def setup_images():
     """
     setup_mgr.run_image_setup()
     return ApiResponse(success=True, data={"started": True})
+
+
+@app.post("/setup/wrapper", response_model=ApiResponse)
+async def setup_wrapper():
+    """Start the wrapper from the images-step Continue action.
+
+    The worker waits on the wrapper manager's condition while its raw logs are
+    streamed independently over ``/ws/wrapper``. The response reports only the
+    state actually detected in this run's container output.
+    """
+    started = await asyncio.get_running_loop().run_in_executor(
+        None, wrapper_mgr.start_wrapper
+    )
+    if not started:
+        return ApiResponse(
+            success=False, data={"started": False, "state": "error"}
+        )
+    state = await asyncio.get_running_loop().run_in_executor(
+        None, wrapper_mgr.wait_for_setup_state, 60
+    )
+    success = state in {"authenticated", "needs_credentials", "needs_2fa"}
+    return ApiResponse(
+        success=success,
+        data={"started": True, "state": state},
+        error=None if success else "Wrapper startup did not reach a known state",
+    )
 
 
 
@@ -569,6 +649,19 @@ async def ws_setup(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         setup_ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/wrapper")
+async def ws_wrapper(websocket: WebSocket):
+    """Stream the wrapper container's complete raw log output."""
+    await wrapper_log_ws_manager.connect(websocket)
+    for entry in wrapper_mgr.get_recent_logs():
+        await websocket.send_json({"type": "wrapper_log", **entry})
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        wrapper_log_ws_manager.disconnect(websocket)
 
 
 if __name__ == "__main__":

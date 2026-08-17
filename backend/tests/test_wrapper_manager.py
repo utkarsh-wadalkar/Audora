@@ -19,7 +19,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import wrapper_manager  # noqa: E402
-from wrapper_manager import WRAPPER_CONTAINER_NAME, WrapperManager  # noqa: E402
+from wrapper_manager import (
+    WRAPPER_CONTAINER_NAME,
+    WrapperManager,
+    parse_twofa_path_from_log,
+    resolve_twofa_host_path,
+)  # noqa: E402
 
 
 class _FakeContainer:
@@ -325,3 +330,82 @@ def test_keep_wrapper_running_is_an_accepted_setting():
 
     assert "keep_wrapper_running" in DEFAULTS
     assert "keep_wrapper_running" in SettingsUpdate.model_fields
+
+
+# ---------------------------------------------------------------------------
+# Runtime 2FA path and authentication state detection
+# ---------------------------------------------------------------------------
+
+def test_twofa_path_is_parsed_from_the_wrapper_prompt():
+    line = "[!] Enter your 2FA code into rootfs//data/2fa.txt"
+    assert parse_twofa_path_from_log(line) == "rootfs//data/2fa.txt"
+
+
+def test_twofa_example_command_path_is_parsed_without_hardcoding_tail():
+    line = "Example command: echo -n 114514 > rootfs/data/data/com.apple.android.music/files/2fa.txt"
+    assert parse_twofa_path_from_log(line) == (
+        "rootfs/data/data/com.apple.android.music/files/2fa.txt"
+    )
+
+
+def test_runtime_twofa_path_resolves_against_the_configured_mount(tmp_path):
+    reported = "rootfs/data/2fa.txt"
+    host_root = tmp_path / "rootfs" / "data"
+    assert resolve_twofa_host_path(reported, str(host_root)) == str(
+        host_root / "2fa.txt"
+    )
+
+
+def test_runtime_twofa_path_keeps_every_reported_nested_segment(tmp_path):
+    reported = "rootfs//data/data/com.apple.android.music/files/2fa.txt"
+    host_root = tmp_path / "rootfs" / "data"
+    assert resolve_twofa_host_path(reported, str(host_root)) == str(
+        host_root / "data" / "com.apple.android.music" / "files" / "2fa.txt"
+    )
+
+
+def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch):
+    manager, _docker_mgr = _make_mgr(monkeypatch)
+    raw_lines = []
+    events = []
+    manager.register_log_callback(raw_lines.append)
+    manager.register_auth_callback(events.append)
+
+    line = "[!] Enter your 2FA code into rootfs/data/2fa.txt"
+    manager._inspect_log_line(line, is_login=False)
+
+    assert raw_lines == [{"sequence": 1, "line": line}]
+    assert events == [
+        {
+            "type": "auth_2fa_required",
+            "message": "Enter your 6-digit verification code",
+            "path": "rootfs/data/2fa.txt",
+        }
+    ]
+    assert manager.get_twofa_host_path().endswith("rootfs\\data\\2fa.txt")
+
+
+def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch):
+    manager, _docker_mgr = _make_mgr(monkeypatch)
+    events = []
+    manager.register_auth_callback(events.append)
+
+    manager._inspect_log_line("listening 0.0.0.0:10020", is_login=False)
+
+    assert events == [{"type": "auth_success", "message": "Signed in successfully"}]
+
+
+def test_later_example_command_refreshes_the_path_for_the_same_run(monkeypatch):
+    manager, _docker_mgr = _make_mgr(monkeypatch)
+
+    manager._inspect_log_line(
+        "Enter your 2FA code into rootfs/data/2fa.txt", is_login=True
+    )
+    manager._inspect_log_line(
+        "Example command: echo -n 114514 > rootfs/data/current-version/2fa.txt",
+        is_login=True,
+    )
+
+    assert manager.get_twofa_host_path().endswith(
+        "rootfs\\data\\current-version\\2fa.txt"
+    )
