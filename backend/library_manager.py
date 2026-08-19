@@ -127,6 +127,10 @@ class LibraryManager:
         if not data:
             return None
         try:
+            # Ensure the cache dir here rather than relying on scan_library
+            # having made it: _extract_metadata is also called directly, and a
+            # missing dir silently cost every track its artwork.
+            os.makedirs(_ART_DIR, exist_ok=True)
             # Tracks in the same folder (same album) share one art file.
             key = self._art_key(track_path)
             out = os.path.join(_ART_DIR, f"{key}.png")

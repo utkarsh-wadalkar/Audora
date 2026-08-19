@@ -155,6 +155,7 @@ wrapper/rootfs/data/
 # Downloaded music files
 downloads/
 MusicDownload/
+/backend/data/*
 
 # Settings with personal paths
 backend/data/settings.json
@@ -169,3 +170,4 @@ wrapper/*.tar.gz
 wrapper/*.xz
 # My Files
 /notes 
+

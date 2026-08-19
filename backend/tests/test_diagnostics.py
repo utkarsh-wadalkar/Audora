@@ -31,6 +31,11 @@ SECRET_TOKEN = "ghp_ABCDEF1234567890abcdef"
 _ALL_SECRETS = [SECRET_EMAIL, SECRET_PASSWORD, SECRET_TOKEN, "SuperSecretHunter2"]
 
 
+def test_diagnostics_tracks_every_setup_step_in_orchestration_order():
+    """Diagnostics must include the FLAC image step, not the old 3-step list."""
+    assert tuple(diagnostics._SETUP_STEPS) == setup_manager.SETUP_STEPS
+
+
 def _flatten(bundle) -> str:
     """Every string in the bundle concatenated, for a single membership check."""
     parts = [str(bundle.get("report", ""))]

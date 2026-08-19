@@ -42,6 +42,16 @@ DOWNLOADER_IMAGE = "ghcr.io/zhaarey/apple-music-downloader"
 WRAPPER_IMAGE = "wrapper"
 DOCKER_DESKTOP_URL = "https://www.docker.com/products/docker-desktop/"
 
+# Canonical setup orchestration order. Consumers such as diagnostics and the
+# wizard's REST/WebSocket contract import this instead of maintaining a second
+# hardcoded list that can drift when a component is added.
+SETUP_STEPS = (
+    "pull_downloader",
+    "build_downloader",
+    "build_wrapper",
+    "complete",
+)
+
 # --- Wrapper source (maintained fork) --------------------------------------
 # Audora builds the wrapper image itself from the upstream release so the user
 # never has to clone a repo, keep a Dockerfile around, or configure a path.

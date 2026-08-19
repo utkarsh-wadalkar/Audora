@@ -41,6 +41,33 @@ def _run(coroutine):
     return asyncio.run(coroutine)
 
 
+def test_downloader_image_build_pulls_the_static_ffmpeg_base(monkeypatch, tmp_path):
+    """A fresh Docker host must not require a manual ffmpeg-image pull."""
+    class _Images:
+        def __init__(self):
+            self.build_kwargs = None
+
+        def get(self, _name):
+            raise AssertionError("the derived image should not exist yet")
+
+        def build(self, **kwargs):
+            self.build_kwargs = kwargs
+            return object(), []
+
+    class _Client:
+        def __init__(self):
+            self.images = _Images()
+
+    client = _Client()
+    monkeypatch.setattr(downloader_image.docker_mgr, "image_exists", lambda _name: False)
+    monkeypatch.setattr(downloader_image.docker_mgr, "get_client", lambda: client)
+    monkeypatch.setattr(downloader_image, "write_dockerfile", lambda: str(tmp_path / "Dockerfile"))
+
+    downloader_image.build_downloader_image()
+
+    assert client.images.build_kwargs["pull"] is True
+
+
 async def _noop_stream():
     """Stand-in for ``_stream_output``.
 

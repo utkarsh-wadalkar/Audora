@@ -16,7 +16,11 @@ interface SystemCheck {
   windows: { ok: boolean; label: string };
   docker: { installed: boolean; running: boolean; download_url: string };
   wsl2: { ok: boolean };
-  images: { downloader: boolean; wrapper: boolean };
+  images: {
+    downloader: boolean;
+    audora_downloader: boolean;
+    wrapper: boolean;
+  };
 }
 
 type Screen = 'welcome' | 'system' | 'images' | 'signin' | 'done';
