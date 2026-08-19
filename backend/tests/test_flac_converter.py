@@ -219,7 +219,32 @@ def test_a_partial_failure_is_not_ok(monkeypatch, tmp_path):
     assert os.path.exists(bad), "failed track keeps its source"
 
 
+def test_cover_art_survives_a_missing_cache_directory(tmp_path, monkeypatch):
+    """Artwork must not depend on scan_library having made the cache dir.
+
+    Found in real verification: `_extract_metadata` called outside a scan wrote
+    into a nonexistent directory, the OSError was swallowed as a debug log, and
+    every track silently reported has_art=False despite carrying a picture.
+    """
+    import library_manager
+
+    art_dir = str(tmp_path / "never-created" / "album_art")
+    monkeypatch.setattr(library_manager, "_ART_DIR", art_dir)
+    assert not os.path.exists(art_dir)
+
+    class _AudioWithPicture:
+        pictures = [type("Picture", (), {"data": b"\xff\xd8\xff" + b"x" * 64})()]
+        tags = {}
+
+    manager = library_manager.LibraryManager()
+    cached = manager._cache_art(str(tmp_path / "Album" / "track.flac"), _AudioWithPicture())
+
+    assert cached is not None, "artwork was dropped because the cache dir was missing"
+    assert os.path.exists(cached)
+
+
 def test_cancellation_stops_between_files(monkeypatch, tmp_path):
+
     sources = [_make_source(tmp_path, f"{index}. Track.m4a") for index in range(3)]
 
     def produce(kwargs):

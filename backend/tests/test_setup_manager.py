@@ -14,6 +14,7 @@ from setup_manager import (  # noqa: E402
     SetupManager,
     StepState,
     ErrorCode,
+    SETUP_STEPS,
     classify_error,
     is_transient,
     _StepFailure,
@@ -34,6 +35,16 @@ def _make_mgr(monkeypatch, *, docker_ok=True, dns_ok=True, disk_ok=True):
     # Default: images absent, disk target is cwd (exists).
     monkeypatch.setattr(dm, "image_exists", lambda name: False)
     monkeypatch.setattr(mgr, "_disk_target", lambda: os.getcwd())
+    # The downloader-image step runs a real `ffmpeg -version` container to prove
+    # conversion will work. Stubbed here so this suite stays a unit test: without
+    # it, every setup test would need a Docker daemon AND a pre-built
+    # audora-downloader image, and would fail on a fresh clone.
+    monkeypatch.setattr(setup_manager.downloader_image, "verify_ffmpeg_present", lambda: True)
+    monkeypatch.setattr(
+        setup_manager.downloader_image,
+        "build_downloader_image",
+        lambda on_log=None: None,
+    )
     return mgr, dm
 
 
@@ -444,6 +455,19 @@ def test_run_image_setup_all_present_is_noop_success(monkeypatch):
     assert _statuses(events, "complete")[-1] == "done"
 
 
+def test_check_system_reports_the_audora_downloader_image(monkeypatch):
+    """The readiness payload must describe the image that carries ffmpeg."""
+    mgr, dm = _make_mgr(monkeypatch)
+    monkeypatch.setattr(dm, "is_docker_running", lambda: True)
+    monkeypatch.setattr(setup_manager.downloader_image, "image_is_built", lambda: True)
+
+    images = mgr.check_system()["images"]
+
+    assert images["downloader"] is False
+    assert images["audora_downloader"] is True
+    assert images["wrapper"] is False
+
+
 def test_recompleting_done_step_is_noop(monkeypatch):
     mgr, _dm = _make_mgr(monkeypatch)
     events = _collect(mgr)
@@ -790,7 +814,7 @@ def test_wrapper_archive_is_not_left_in_the_build_context(monkeypatch, tmp_path)
 # what the pre-existing coverage missed.
 # ---------------------------------------------------------------------------
 
-_ALL_SETUP_STEPS = ("pull_downloader", "build_wrapper", "complete")
+_ALL_SETUP_STEPS = SETUP_STEPS
 
 
 def _provisioned_mgr(monkeypatch):
@@ -813,7 +837,13 @@ def test_rerun_on_provisioned_system_still_emits_terminal_statuses(monkeypatch):
     # First run — this one always worked.
     mgr._run_image_setup_blocking(sleep=_NOSLEEP)
     first_run_done = [e for e in events if e["status"] == "done"]
-    assert len(first_run_done) == 3, "sanity: the first run should emit 3 terminal frames"
+    # Derived from _ALL_SETUP_STEPS rather than hardcoded: a hardcoded count is
+    # what made this test break when a setup step was added, even though the
+    # behaviour it guards (every step reaches a terminal status) was still fine.
+    assert len(first_run_done) == len(_ALL_SETUP_STEPS), (
+        f"sanity: the first run should emit {len(_ALL_SETUP_STEPS)} terminal frames, "
+        f"got {[e['step'] for e in first_run_done]}"
+    )
 
     # Second run in the SAME manager — the real-world singleton case.
     events.clear()

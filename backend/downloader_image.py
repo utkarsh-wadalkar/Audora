@@ -94,9 +94,10 @@ def build_downloader_image(
         path=context,
         tag=AUDORA_DOWNLOADER_IMAGE,
         rm=True,
-        # The upstream base is already pulled by the setup step before this
-        # runs; only the static-ffmpeg stage needs fetching.
-        pull=False,
+        # Pull both FROM images when needed. The upstream image is normally
+        # already present from the preceding setup step, while a clean Docker
+        # host still needs the static-ffmpeg stage fetched automatically.
+        pull=True,
     )
     for chunk in build_logs:
         if isinstance(chunk, dict) and "stream" in chunk:

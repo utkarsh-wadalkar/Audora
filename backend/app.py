@@ -141,6 +141,8 @@ def wrapper_log_callback(event: dict) -> None:
 # STEP IDS (`step`) — emitted by setup_manager in order:
 #   "pull_downloader"  Pull the ghcr.io apple-music-downloader image (streamed,
 #                      preflighted, auto-retried). Emits `percent`/`progress`.
+#   "build_downloader" Build Audora's derived downloader image with static
+#                      ffmpeg, then verify the ffmpeg probe before downloads.
 #   "build_wrapper"    Build (or detect already-built) the local wrapper image.
 #   "complete"         Terminal bookkeeping step; done => whole setup succeeded.
 #

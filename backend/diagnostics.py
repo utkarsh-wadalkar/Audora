@@ -27,7 +27,7 @@ from typing import Dict, List, Optional
 
 from docker_manager import docker_mgr
 from logger import get_logger, get_recent_logs
-from setup_manager import StepState, setup_mgr
+from setup_manager import SETUP_STEPS, StepState, setup_mgr
 from utils import redact_credentials
 
 logger = get_logger("diagnostics")
@@ -35,8 +35,9 @@ logger = get_logger("diagnostics")
 _UNAVAILABLE = "unavailable"
 
 # Setup steps in orchestration order (setup_manager._run_image_setup_blocking).
+# Keep this alias for callers/tests while deriving it from the canonical source.
 # Read-only: we only ever call setup_mgr.get_step_state() on these.
-_SETUP_STEPS: List[str] = ["pull_downloader", "build_wrapper", "complete"]
+_SETUP_STEPS: List[str] = list(SETUP_STEPS)
 
 # Windows creation flag to run a subprocess with no console window. Absent on
 # non-Windows platforms, so guard the lookup.
