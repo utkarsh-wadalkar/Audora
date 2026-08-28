@@ -73,6 +73,7 @@ interface AppState {
   // Player
   currentTrack: Track | null;
   isPlaying: boolean;
+  playbackQueue: Track[];
 
   // Actions
   refreshStatus: () => Promise<void>;
@@ -86,8 +87,16 @@ interface AppState {
   cancelDownload: () => Promise<void>;
   addToQueue: (url: string) => Promise<void>;
   setCurrentTrack: (track: Track | null) => void;
+  playTracks: (tracks: Track[], startTrack?: Track) => void;
+  playNext: () => boolean;
+  playPrevious: () => boolean;
   setIsPlaying: (playing: boolean) => void;
 }
+
+const sameTrack = (first: Track, second: Track) =>
+  first.id != null && second.id != null
+    ? first.id === second.id
+    : first.file_path === second.file_path;
 
 export const useAppStore = create<AppState>((set) => ({
   dockerStatus: false,
@@ -99,6 +108,7 @@ export const useAppStore = create<AppState>((set) => ({
   setupSteps: {},
   currentTrack: null,
   isPlaying: false,
+  playbackQueue: [],
 
   refreshStatus: async () => {
     try {
@@ -201,6 +211,55 @@ export const useAppStore = create<AppState>((set) => ({
     await api.post('/queue', { url });
   },
 
-  setCurrentTrack: (track) => set({ currentTrack: track, isPlaying: !!track }),
+  setCurrentTrack: (track) =>
+    set((state) => {
+      if (!track) return { currentTrack: null, isPlaying: false };
+      const isAlreadyQueued = state.playbackQueue.some((queued) => sameTrack(queued, track));
+      return {
+        currentTrack: track,
+        isPlaying: true,
+        playbackQueue: isAlreadyQueued ? state.playbackQueue : [track],
+      };
+    }),
+  playTracks: (tracks, startTrack) => {
+    const playableTracks = tracks.filter((track) => track.id != null);
+    const requestedStart = startTrack
+      ? playableTracks.find((track) => sameTrack(track, startTrack))
+      : undefined;
+    const firstTrack = requestedStart ?? playableTracks[0] ?? null;
+    set({
+      playbackQueue: playableTracks,
+      currentTrack: firstTrack,
+      isPlaying: !!firstTrack,
+    });
+  },
+  playNext: () => {
+    let advanced = false;
+    set((state) => {
+      if (!state.currentTrack) return { isPlaying: false };
+      const index = state.playbackQueue.findIndex((track) =>
+        sameTrack(track, state.currentTrack as Track)
+      );
+      const nextTrack = index >= 0 ? state.playbackQueue[index + 1] : undefined;
+      if (!nextTrack) return { isPlaying: false };
+      advanced = true;
+      return { currentTrack: nextTrack, isPlaying: true };
+    });
+    return advanced;
+  },
+  playPrevious: () => {
+    let moved = false;
+    set((state) => {
+      if (!state.currentTrack) return {};
+      const index = state.playbackQueue.findIndex((track) =>
+        sameTrack(track, state.currentTrack as Track)
+      );
+      const previousTrack = index > 0 ? state.playbackQueue[index - 1] : undefined;
+      if (!previousTrack) return {};
+      moved = true;
+      return { currentTrack: previousTrack, isPlaying: true };
+    });
+    return moved;
+  },
   setIsPlaying: (playing) => set({ isPlaying: playing }),
 }));

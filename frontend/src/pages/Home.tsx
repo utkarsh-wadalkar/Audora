@@ -6,6 +6,13 @@ import { useAppStore } from '../store/useAppStore';
 import type { Track } from '../store/useAppStore';
 import { formatDuration, formatSize } from '../lib/format';
 
+interface AlbumGroup {
+  folder_path: string;
+  artist?: string;
+  album?: string;
+  tracks: Track[];
+}
+
 /** Square album art with a graceful fallback when a track has no embedded image. */
 function AlbumArt({ trackId, size = 18 }: { trackId?: number; size?: number }) {
   const [failed, setFailed] = useState(false);
@@ -31,16 +38,21 @@ function AlbumArt({ trackId, size = 18 }: { trackId?: number; size?: number }) {
 
 export default function Home() {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [albums, setAlbums] = useState<AlbumGroup[]>([]);
   const [downloadJobs, setDownloadJobs] = useState<any[]>([]);
   const [query, setQuery] = useState('');
 
-  const setCurrentTrack = useAppStore((s) => s.setCurrentTrack);
+  const playTracks = useAppStore((s) => s.playTracks);
   const currentTrack = useAppStore((s) => s.currentTrack);
 
   useEffect(() => {
     api
       .get('/library')
       .then((response) => setTracks(response.data.data || []))
+      .catch(() => {});
+    api
+      .get('/library/albums')
+      .then((response) => setAlbums(response.data.data || []))
       .catch(() => {});
     api
       .get('/history')
@@ -52,16 +64,6 @@ export default function Home() {
     () => tracks.reduce((total, track) => total + (track.file_size || 0), 0),
     [tracks]
   );
-
-  // One album card per distinct album, represented by its first track.
-  const albums = useMemo(() => {
-    const byAlbum = new Map<string, Track>();
-    tracks.forEach((track) => {
-      const key = `${track.artist}::${track.album}`;
-      if (!byAlbum.has(key)) byAlbum.set(key, track);
-    });
-    return Array.from(byAlbum.values());
-  }, [tracks]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -111,7 +113,7 @@ export default function Home() {
             {matches.map((track, index) => (
               <button
                 key={track.file_path}
-                onClick={() => setCurrentTrack(track)}
+                onClick={() => playTracks(matches, track)}
                 className={`relative z-10 flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
                   index > 0 ? 'border-t border-white/[0.05]' : ''
                 }`}
@@ -146,26 +148,30 @@ export default function Home() {
             </Link>
           </div>
           <div className="scrollbar-none rail-fade -mx-2 flex gap-4 overflow-x-auto px-2 pb-2">
-            {albums.map((album) => (
-              <button
-                key={`${album.artist}::${album.album}`}
-                onClick={() => setCurrentTrack(album)}
-                className="group w-44 shrink-0 text-left"
-              >
-                <div className="relative mb-3 aspect-square overflow-hidden rounded-xl border border-white/[0.08] shadow-glass">
-                  <AlbumArt trackId={album.id} size={28} />
-                  <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob">
-                      <Play size={15} fill="currentColor" className="ml-0.5" />
-                    </span>
+            {albums.map((album) => {
+              const firstTrack = album.tracks[0];
+              if (!firstTrack) return null;
+              return (
+                <button
+                  key={album.folder_path}
+                  onClick={() => playTracks(album.tracks, firstTrack)}
+                  className="group w-44 shrink-0 text-left"
+                >
+                  <div className="relative mb-3 aspect-square overflow-hidden rounded-xl border border-white/[0.08] shadow-glass">
+                    <AlbumArt trackId={firstTrack.id} size={28} />
+                    <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob">
+                        <Play size={15} fill="currentColor" className="ml-0.5" />
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <p className="truncate text-sm font-medium text-gray-100">
-                  {album.album || 'Unknown album'}
-                </p>
-                <p className="truncate text-xs text-gray-500">{album.artist}</p>
-              </button>
-            ))}
+                  <p className="truncate text-sm font-medium text-gray-100">
+                    {album.album || 'Unknown album'}
+                  </p>
+                  <p className="truncate text-xs text-gray-500">{album.artist}</p>
+                </button>
+              );
+            })}
           </div>
         </section>
       )}
@@ -199,7 +205,7 @@ export default function Home() {
                   }`}
                 >
                   <button
-                    onClick={() => setCurrentTrack(track)}
+                    onClick={() => playTracks(tracks, track)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
                     <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg">

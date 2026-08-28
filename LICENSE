@@ -1,7 +1,7 @@
 Audora Software License
 Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 1. DEFINITIONS
 
@@ -19,7 +19,7 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
    "Distribution" means making the unmodified installer or executable of
    the Software available to third parties, whether for free or for a fee.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 2. PERMITTED USES
 
@@ -36,7 +36,6 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
          (iii) You do not charge a fee for the Software itself, though
                reasonable media or distribution costs are permitted.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 3. RESTRICTIONS
 
@@ -67,7 +66,7 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
        of its Source Code into another product, project, or software
        application.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 4. OWNERSHIP AND INTELLECTUAL PROPERTY
 
@@ -76,10 +75,8 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
    property rights. No rights are granted to You other than those expressly
    set forth in Section 2 of this License.
 
-   The name "Audora", its logo, and associated branding are trademarks of
-   Utkarsh Wadalkar and may not be used without prior written permission.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 5. THIRD-PARTY COMPONENTS
 
@@ -95,7 +92,7 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
    Refer to the accompanying LICENSES.chromium.html and
    LICENSE.electron.txt files for third-party license notices.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 6. CONTRIBUTIONS AND PERMISSIONS
 
@@ -106,9 +103,9 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
 
    To request permissions beyond the scope of this License (such as
    commercial licensing or source access), contact:
-   utkarsh-wadalkar(https://github.com/utkarsh-wadalkar) on GitHub/Mail.
+   utkarsh-wadalkar(https://github.com/utkarsh-wadalkar) on GitHub or eMail.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 7. TERMINATION
 
@@ -119,7 +116,7 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
          possession or control; and
      (c) Sections 4, 7, and 8 survive termination indefinitely.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 8. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
 
@@ -135,7 +132,7 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
    THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 9. GOVERNING LAW
 
@@ -143,7 +140,5 @@ Copyright (c) 2026 Utkarsh Wadalkar. All rights reserved.
    laws of India, without regard to its conflict of law provisions.
    Any disputes arising under this License shall be subject to the exclusive
    jurisdiction of the courts located in India.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 

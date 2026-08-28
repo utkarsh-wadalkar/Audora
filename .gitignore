@@ -148,21 +148,11 @@ Session.vim
 # Apple Music session data (sensitive — never commit)
 **/rootfs/data/
 wrapper/rootfs/data/
-.claude/
-.codex/
-.impeccable/
 
 # Downloaded music files
 downloads/
 MusicDownload/
-/backend/data/*
-
-# Settings with personal paths
-backend/data/settings.json
-
-# Generated downloader config — rewritten from downloader_config.py before
-# every download, so it is runtime state, not source.
-backend/data/downloader/
+backend/data/*
 
 # Docker wrapper binary (large binary, downloaded separately)
 wrapper/wrapper
@@ -170,4 +160,5 @@ wrapper/*.tar.gz
 wrapper/*.xz
 # My Files
 /notes 
-
+.claude/
+.codex/
