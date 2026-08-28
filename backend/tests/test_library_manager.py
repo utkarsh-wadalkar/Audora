@@ -4,6 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import library_manager  # noqa: E402
 from library_manager import LibraryManager  # noqa: E402
 
 
@@ -79,3 +80,37 @@ def test_album_folders_use_natural_filesystem_name_order():
     albums = manager.get_albums()
 
     assert [album["album"] for album in albums] == ["Album 2", "Album 10"]
+
+
+def test_scan_follows_the_current_configured_download_root(monkeypatch, tmp_path):
+    """Changing Settings must work for arbitrary roots, not one fixed drive."""
+    first_root = tmp_path / "first-library"
+    second_root = tmp_path / "second-library"
+    first_track = first_root / "Artist A" / "Album A" / "01 First.flac"
+    second_track = second_root / "Artist B" / "Album B" / "01 Second.flac"
+    first_track.parent.mkdir(parents=True)
+    second_track.parent.mkdir(parents=True)
+    first_track.touch()
+    second_track.touch()
+
+    configured = {"downloads_path": str(first_root)}
+    monkeypatch.setattr(library_manager, "get_settings", lambda: dict(configured))
+
+    manager = LibraryManager()
+    monkeypatch.setattr(manager, "_persist", lambda tracks: None)
+    monkeypatch.setattr(
+        manager,
+        "_extract_metadata",
+        lambda path: _track(path, os.path.basename(path), "Artist", "Metadata Album"),
+    )
+
+    assert [track["file_path"] for track in manager.scan_library()] == [
+        str(first_track)
+    ]
+
+    configured["downloads_path"] = str(second_root)
+
+    assert [track["file_path"] for track in manager.scan_library()] == [
+        str(second_track)
+    ]
+    assert manager.get_albums()[0]["album"] == "Album B"

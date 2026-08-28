@@ -529,7 +529,22 @@ def read_settings():
 
 @app.post("/settings", response_model=ApiResponse)
 def write_settings(req: SettingsUpdate):
-    updated = update_settings(req.model_dump(exclude_unset=True))
+    previous = get_settings()
+    patch = req.model_dump(exclude_unset=True)
+    updated = update_settings(patch)
+
+    # The library cache and database reflect the tree under downloads_path.
+    # Refresh immediately when that root changes so Settings never leaves the
+    # old folder's albums visible until a manual or post-download rescan.
+    previous_downloads = os.path.normcase(
+        os.path.normpath(str(previous.get("downloads_path") or ""))
+    )
+    updated_downloads = os.path.normcase(
+        os.path.normpath(str(updated.get("downloads_path") or ""))
+    )
+    if "downloads_path" in patch and previous_downloads != updated_downloads:
+        lib_mgr.scan_library()
+
     return ApiResponse(success=True, data=updated)
 
 

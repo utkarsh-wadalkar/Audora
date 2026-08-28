@@ -1,5 +1,6 @@
 """Small helpers: URL validation, path conversion, formatting, redaction."""
 import re
+from urllib.parse import parse_qs, urlparse
 
 # Apple Music URLs look like:
 #   https://music.apple.com/us/album/name/12345
@@ -28,10 +29,19 @@ def validate_apple_music_url(url: str) -> bool:
 
 def url_kind(url: str) -> str:
     """Return album/playlist/song/artist/music-video, or 'unknown'."""
+    clean_url = (url or "").strip()
     m = re.search(
-        r"/(album|playlist|song|artist|music-video)/", url or "", re.IGNORECASE
+        r"/(album|playlist|song|artist|music-video)/", clean_url, re.IGNORECASE
     )
-    return m.group(1).lower() if m else "unknown"
+    kind = m.group(1).lower() if m else "unknown"
+
+    # Apple Music represents a shared album track as an /album/ URL whose
+    # ``i`` query value is the selected song ID. The upstream downloader needs
+    # --song for that form; treating the path alone as authoritative downloads
+    # the entire album instead.
+    if kind == "album" and parse_qs(urlparse(clean_url).query).get("i"):
+        return "song"
+    return kind
 
 
 def windows_to_docker_path(path: str) -> str:
