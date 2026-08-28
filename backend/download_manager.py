@@ -100,6 +100,7 @@ class DownloadManager:
         spatial mix, and Audora always wants the lossless ALAC default so it has
         something worth converting to FLAC.
         """
+        url = url.strip()
         command: List[str] = []
         kind = url_kind(url)
         if kind == "song":
@@ -111,6 +112,7 @@ class DownloadManager:
 
     # --- Lifecycle ---
     async def start_download(self, url: str) -> bool:
+        url = url.strip()
         if self._is_running:
             logger.warning("A download is already running")
             return False

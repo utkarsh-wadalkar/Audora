@@ -39,6 +39,19 @@ def test_url_kind():
     assert url_kind("https://example.com/x") == "unknown"
 
 
+def test_album_share_url_with_track_id_is_a_song():
+    """Dropping the query track ID would download the entire album."""
+    assert url_kind(
+        "https://music.apple.com/in/album/right-now-na-na-na/1440742168?i=1440742169"
+    ) == "song"
+
+
+def test_plain_album_share_url_remains_an_album():
+    assert url_kind(
+        "https://music.apple.com/in/album/freedom/1440742168"
+    ) == "album"
+
+
 def test_windows_to_docker_path():
     assert windows_to_docker_path("D:\\a\\b") == "D:/a/b"
     assert windows_to_docker_path("") == ""
