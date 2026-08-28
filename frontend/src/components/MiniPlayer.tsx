@@ -8,7 +8,10 @@ import { formatDuration } from '../lib/format';
 export default function MiniPlayer() {
   const currentTrack = useAppStore((s) => s.currentTrack);
   const isPlaying = useAppStore((s) => s.isPlaying);
+  const playbackQueue = useAppStore((s) => s.playbackQueue);
   const setIsPlaying = useAppStore((s) => s.setIsPlaying);
+  const playNext = useAppStore((s) => s.playNext);
+  const playPrevious = useAppStore((s) => s.playPrevious);
 
   const howlRef = useRef<Howl | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -34,7 +37,9 @@ export default function MiniPlayer() {
       html5: true, // stream instead of fully buffering
       volume,
       onload: () => setDuration(howl.duration()),
-      onend: () => setIsPlaying(false),
+      // Read the current store action instead of closing over the queue from
+      // this render. Howler invokes this callback long after the effect ran.
+      onend: () => useAppStore.getState().playNext(),
     });
     howlRef.current = howl;
     howl.play();
@@ -89,6 +94,15 @@ export default function MiniPlayer() {
   };
 
   const progressPct = duration ? (position / duration) * 100 : 0;
+  const currentIndex = currentTrack
+    ? playbackQueue.findIndex((track) =>
+        track.id != null && currentTrack.id != null
+          ? track.id === currentTrack.id
+          : track.file_path === currentTrack.file_path
+      )
+    : -1;
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < playbackQueue.length - 1;
 
   return (
     <div className="glass mx-6 mb-3 flex h-[72px] shrink-0 items-center gap-5 rounded-2xl px-4">
@@ -121,8 +135,9 @@ export default function MiniPlayer() {
       <div className="relative z-10 flex w-[26rem] flex-col items-center gap-1.5">
         <div className="flex items-center gap-4">
           <button
+            onClick={playPrevious}
             className="text-gray-500 transition-colors hover:text-gray-200 disabled:opacity-30"
-            disabled
+            disabled={!hasPrevious}
             aria-label="Previous track"
           >
             <SkipBack size={17} />
@@ -140,8 +155,9 @@ export default function MiniPlayer() {
             )}
           </button>
           <button
+            onClick={playNext}
             className="text-gray-500 transition-colors hover:text-gray-200 disabled:opacity-30"
-            disabled
+            disabled={!hasNext}
             aria-label="Next track"
           >
             <SkipForward size={17} />

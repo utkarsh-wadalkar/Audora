@@ -10,6 +10,7 @@ rather than surfaced as a track the player cannot open.
 """
 import hashlib
 import os
+import re
 from typing import Dict, List, Optional
 
 import mutagen
@@ -30,6 +31,14 @@ TRACK_FORMAT = "flac"
 _TITLE_KEYS = ("title", "\xa9nam")
 _ARTIST_KEYS = ("artist", "\xa9ART")
 _ALBUM_KEYS = ("album", "\xa9alb")
+
+
+def _natural_name_key(value: str):
+    """Case-insensitive filename ordering with numeric chunks as numbers."""
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in re.split(r"(\d+)", value)
+    )
 
 
 class LibraryManager:
@@ -168,18 +177,22 @@ class LibraryManager:
             db.query(LibraryTrack).delete()
             now = datetime.utcnow()
             for track in tracks:
-                db.add(
-                    LibraryTrack(
-                        file_path=track["file_path"],
-                        title=track.get("title"),
-                        artist=track.get("artist"),
-                        album=track.get("album"),
-                        duration=track.get("duration", 0),
-                        file_size=track.get("file_size", 0),
-                        format=track.get("format", TRACK_FORMAT),
-                        last_scanned=now,
-                    )
+                row = LibraryTrack(
+                    file_path=track["file_path"],
+                    title=track.get("title"),
+                    artist=track.get("artist"),
+                    album=track.get("album"),
+                    duration=track.get("duration", 0),
+                    file_size=track.get("file_size", 0),
+                    format=track.get("format", TRACK_FORMAT),
+                    last_scanned=now,
                 )
+                db.add(row)
+                # The scan response is used immediately by the UI. Populate
+                # the generated ID now so those tracks have valid stream/art
+                # URLs without requiring an application restart.
+                db.flush()
+                track["id"] = row.id
             db.commit()
         except Exception as persist_error:
             db.rollback()
@@ -238,15 +251,31 @@ class LibraryManager:
     def get_albums(self) -> List[Dict]:
         albums: Dict = {}
         for track in self.get_all_tracks():
-            key = (track.get("artist"), track.get("album"))
+            # The downloader stores every album in its own directory. That
+            # directory is the stable album identity; per-track ``artist``
+            # tags are contributing artists and legitimately vary for
+            # collaborations within the same album.
+            file_path = os.path.normpath(track.get("file_path") or "")
+            folder_path = os.path.dirname(file_path)
+            key = os.path.normcase(folder_path)
+            album_name = os.path.basename(folder_path) or track.get("album") or "Unknown Album"
+
+            # A malformed path should not collapse every such track into one
+            # empty-key group. Metadata is only a last-resort identity here.
+            if not key:
+                key = f"metadata::{str(album_name).casefold()}"
             if key not in albums:
                 albums[key] = {
+                    "folder_path": folder_path,
                     "artist": track.get("artist"),
-                    "album": track.get("album"),
+                    "album": album_name,
                     "tracks": [],
                 }
             albums[key]["tracks"].append(track)
-        return list(albums.values())
+        return sorted(
+            albums.values(),
+            key=lambda album: _natural_name_key(str(album.get("album") or "")),
+        )
 
     def search(self, query: str) -> List[Dict]:
         normalised_query = (query or "").lower().strip()

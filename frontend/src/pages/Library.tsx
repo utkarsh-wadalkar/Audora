@@ -8,7 +8,24 @@ import { formatDuration } from '../lib/format';
 type Tab = 'tracks' | 'artists' | 'albums';
 type Sort = 'title' | 'artist' | 'album';
 
+interface AlbumGroup {
+  folder_path: string;
+  artist?: string;
+  album?: string;
+  tracks: Track[];
+}
+
 const TABS: Tab[] = ['tracks', 'artists', 'albums'];
+const naturalName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function compareTracks(first: Track, second: Track, sort: Sort) {
+  const primary = naturalName.compare(first[sort] || '', second[sort] || '');
+  if (primary) return primary;
+  // Keep each album together and give its songs a predictable file-system-like
+  // order instead of falling back to the backend's artist insertion order.
+  const byTitle = naturalName.compare(first.title || '', second.title || '');
+  return byTitle || naturalName.compare(first.file_path, second.file_path);
+}
 
 function AlbumArt({ trackId, size = 28 }: { trackId?: number; size?: number }) {
   const [failed, setFailed] = useState(false);
@@ -48,17 +65,22 @@ function ArtworkTile({ trackId }: { trackId?: number }) {
 
 export default function Library() {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [albums, setAlbums] = useState<AlbumGroup[]>([]);
   const [tab, setTab] = useState<Tab>('tracks');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('title');
   const [scanning, setScanning] = useState(false);
 
-  const setCurrentTrack = useAppStore((s) => s.setCurrentTrack);
+  const playTracks = useAppStore((s) => s.playTracks);
 
   const load = async () => {
     try {
-      const response = await api.get('/library');
-      setTracks(response.data.data || []);
+      const [tracksResponse, albumsResponse] = await Promise.all([
+        api.get('/library'),
+        api.get('/library/albums'),
+      ]);
+      setTracks(tracksResponse.data.data || []);
+      setAlbums(albumsResponse.data.data || []);
     } catch {
       // Leave the current list in place if the backend is unreachable.
     }
@@ -89,48 +111,27 @@ export default function Library() {
         )
       );
     }
-    return [...list].sort((first, second) =>
-      (first[sort] || '').toString().localeCompare((second[sort] || '').toString())
-    );
+    return [...list].sort((first, second) => compareTracks(first, second, sort));
   }, [tracks, needle, sort]);
 
   const artists = useMemo(() => {
-    const byArtist = new Map<string, { name: string; count: number; artTrackId?: number }>();
+    const byArtist = new Map<
+      string,
+      { name: string; count: number; artTrackId?: number; tracks: Track[] }
+    >();
     tracks.forEach((track) => {
       const name = track.artist || 'Unknown artist';
       const existing = byArtist.get(name);
       if (existing) {
         existing.count += 1;
+        existing.tracks.push(track);
       } else {
-        byArtist.set(name, { name, count: 1, artTrackId: track.id });
+        byArtist.set(name, { name, count: 1, artTrackId: track.id, tracks: [track] });
       }
     });
     return Array.from(byArtist.values()).sort((first, second) =>
       first.name.localeCompare(second.name)
     );
-  }, [tracks]);
-
-  const albums = useMemo(() => {
-    const byAlbum = new Map<
-      string,
-      { artist?: string; album?: string; count: number; artTrackId?: number; firstTrack: Track }
-    >();
-    tracks.forEach((track) => {
-      const key = `${track.artist}::${track.album}`;
-      const existing = byAlbum.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        byAlbum.set(key, {
-          artist: track.artist,
-          album: track.album,
-          count: 1,
-          artTrackId: track.id,
-          firstTrack: track,
-        });
-      }
-    });
-    return Array.from(byAlbum.values());
   }, [tracks]);
 
   return (
@@ -200,7 +201,7 @@ export default function Library() {
           {filtered.map((track) => (
             <button
               key={track.file_path}
-              onClick={() => setCurrentTrack(track)}
+              onClick={() => playTracks(filtered, track)}
               className="group text-left"
             >
               <ArtworkTile trackId={track.id} />
@@ -217,18 +218,23 @@ export default function Library() {
           {artists
             .filter((artist) => artist.name.toLowerCase().includes(needle))
             .map((artist) => (
-              <div
+              <button
                 key={artist.name}
-                className="glass glass-hover flex items-center gap-3 rounded-2xl p-3"
+                onClick={() => playTracks(artist.tracks, artist.tracks[0])}
+                aria-label={`Play songs by ${artist.name}`}
+                className="glass glass-hover group flex items-center gap-3 rounded-2xl p-3 text-left"
               >
                 <div className="relative z-10 h-11 w-11 shrink-0 overflow-hidden rounded-full">
                   <AlbumArt trackId={artist.artTrackId} size={16} />
                 </div>
-                <div className="relative z-10 min-w-0">
+                <div className="relative z-10 min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-100">{artist.name}</p>
                   <p className="text-xs text-gray-500">{artist.count} tracks</p>
                 </div>
-              </div>
+                <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-audora-500 text-white opacity-80 shadow-knob transition-opacity group-hover:opacity-100">
+                  <Play size={13} fill="currentColor" className="ml-0.5" />
+                </span>
+              </button>
             ))}
         </div>
       ) : (
@@ -237,17 +243,17 @@ export default function Library() {
             .filter((album) => (album.album || '').toLowerCase().includes(needle))
             .map((album) => (
               <button
-                key={`${album.artist}::${album.album}`}
-                onClick={() => setCurrentTrack(album.firstTrack)}
+                key={album.folder_path}
+                onClick={() => playTracks(album.tracks, album.tracks[0])}
                 className="group text-left"
               >
-                <ArtworkTile trackId={album.artTrackId} />
+                <ArtworkTile trackId={album.tracks[0]?.id} />
                 <p className="truncate text-sm font-medium text-gray-100">
                   {album.album || 'Unknown album'}
                 </p>
                 <p className="truncate text-xs text-gray-500">{album.artist}</p>
                 <p className="mt-0.5 font-mono text-[10px] tabular-nums text-gray-600">
-                  {album.count} tracks
+                  {album.tracks.length} tracks
                 </p>
               </button>
             ))}
