@@ -11,8 +11,10 @@ from collections import deque
 from logging.handlers import RotatingFileHandler
 from typing import Callable, Deque, Dict, List
 
+from runtime_platform import get_data_dir
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_LOG_DIR = os.path.join(_BASE_DIR, "data", "logs")
+_LOG_DIR = os.path.join(str(get_data_dir()), "logs")
 _LOG_PATH = os.path.join(_LOG_DIR, "audora.log")
 
 # Ring buffer of recent structured log records for the /logs endpoint.

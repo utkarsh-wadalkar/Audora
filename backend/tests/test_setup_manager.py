@@ -32,6 +32,10 @@ def _make_mgr(monkeypatch, *, docker_ok=True, dns_ok=True, disk_ok=True):
     monkeypatch.setattr(dm, "is_docker_api_responsive", lambda: docker_ok)
     monkeypatch.setattr(dm, "check_dns", lambda host: dns_ok)
     monkeypatch.setattr(dm, "check_disk_space", lambda path, need: disk_ok)
+    # These tests simulate a specific Docker/registry failure; the final
+    # connectivity refinement must not perform a real network probe that can
+    # rewrite the simulated code to OFFLINE on an isolated test runner.
+    monkeypatch.setattr(dm, "check_internet", lambda: True)
     # Default: images absent, disk target is cwd (exists).
     monkeypatch.setattr(dm, "image_exists", lambda name: False)
     monkeypatch.setattr(mgr, "_disk_target", lambda: os.getcwd())

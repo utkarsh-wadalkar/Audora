@@ -17,11 +17,11 @@ import mutagen
 
 from settings import get_settings
 from logger import get_logger
+from runtime_platform import get_data_dir
 
 logger = get_logger("library")
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_ART_DIR = os.path.join(_BASE_DIR, "data", "album_art")
+_ART_DIR = os.path.join(str(get_data_dir()), "album_art")
 
 TRACK_EXTENSION = ".flac"
 TRACK_FORMAT = "flac"

@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover - docker lib always present in prod
     Container = object  # type: ignore
 
 from logger import get_logger
+from runtime_platform import get_runtime_platform
 
 logger = get_logger("docker")
 
@@ -190,8 +191,9 @@ def _docker_desktop_paths() -> list:
 
 
 class DockerManager:
-    def __init__(self) -> None:
+    def __init__(self, runtime_provider=get_runtime_platform) -> None:
         self._client: Optional["docker.DockerClient"] = None
+        self._runtime_provider = runtime_provider
         # Human-readable reason the last start_container() call failed, or None.
         self.last_start_error: Optional[str] = None
 
@@ -235,6 +237,9 @@ class DockerManager:
         """Launch Docker Desktop and wait (best effort) for the engine."""
         if self.is_docker_running():
             return True
+        if not self._runtime_provider().supports_docker_desktop_start:
+            logger.info("Docker Desktop cannot be started by Audora on this platform")
+            return False
         launched = False
         # Discovered per call rather than at import time: the user may install
         # Docker Desktop while Audora is already running, and this is the exact

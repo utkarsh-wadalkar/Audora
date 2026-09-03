@@ -1,0 +1,110 @@
+name: Release desktop builds
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            id: windows-x64
+            os: windows-latest
+            builder_args: --win nsis --x64
+            unpacked: dist-electron/win-unpacked
+            artifacts: |
+              frontend/dist-electron/*.exe
+              frontend/dist-electron/*.blockmap
+          - name: Linux x64
+            id: linux-x64
+            os: ubuntu-latest
+            builder_args: --linux AppImage deb --x64
+            unpacked: dist-electron/linux-unpacked
+            artifacts: |
+              frontend/dist-electron/*.AppImage
+              frontend/dist-electron/*.deb
+              frontend/dist-electron/*.blockmap
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend build dependencies
+        run: python -m pip install -r backend/requirements.txt -r backend/requirements-build.txt
+      - name: Verify backend tests
+        run: python -m pytest backend/tests -q
+      - name: Freeze the native backend
+        working-directory: backend
+        run: python -m PyInstaller --noconfirm --clean backend.spec
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Verify frontend and Electron policy tests
+        working-directory: frontend
+        run: |
+          npm run test:electron
+          npm run typecheck
+          npm run build
+      - name: Package the native desktop application
+        working-directory: frontend
+        run: npx electron-builder ${{ matrix.builder_args }} --publish never
+      - name: Smoke-test the packaged Windows application
+        if: runner.os == 'Windows'
+        working-directory: frontend
+        run: npm run smoke -- ${{ matrix.unpacked }}
+      - name: Smoke-test the packaged Linux application
+        if: runner.os == 'Linux'
+        working-directory: frontend
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npm run smoke -- ${{ matrix.unpacked }}
+      - name: Upload platform release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: audora-${{ matrix.id }}
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ matrix.artifacts }}
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows and Linux artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+      - name: Generate SHA-256 checksums
+        run: |
+          find artifacts -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec sha256sum {} + | sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Audora ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.blockmap
+            SHA256SUMS.txt

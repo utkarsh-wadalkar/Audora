@@ -25,6 +25,7 @@ from docker_manager import docker_mgr
 from downloader_image import AUDORA_DOWNLOADER_IMAGE
 from settings import get_settings
 from logger import get_logger
+from runtime_platform import get_data_dir
 from utils import validate_apple_music_url, windows_to_docker_path, url_kind
 import progress as progress_parser
 
@@ -42,8 +43,7 @@ STAGE_READY = "ready"
 
 # Where the generated config.yaml is kept on the host, next to the backend's
 # other runtime state (mirrors settings.py's data/ convention).
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.join(_BASE_DIR, "data", "downloader")
+CONFIG_DIR = os.path.join(str(get_data_dir()), "downloader")
 
 
 class DownloadManager:

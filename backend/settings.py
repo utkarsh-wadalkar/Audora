@@ -8,16 +8,18 @@ import os
 import threading
 from typing import Any, Dict
 
+from runtime_platform import get_data_dir, get_runtime_platform
+
 _LOCK = threading.Lock()
 
 # Resolve paths relative to this file so it works in dev and when frozen.
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_DATA_DIR = os.path.join(_BASE_DIR, "data")
+_DATA_DIR = str(get_data_dir(legacy_data_dir=None))
 _SETTINGS_PATH = os.path.join(_DATA_DIR, "settings.json")
 
 DEFAULTS: Dict[str, Any] = {
-    "downloads_path": "D:\\apple-music-dl\\downloads",
-    "wrapper_data_path": "D:\\apple-music-dl\\wrapper\\rootfs\\data",
+    "downloads_path": get_runtime_platform().default_downloads_dir,
+    "wrapper_data_path": str(get_runtime_platform().default_wrapper_data_dir),
     "auto_start_wrapper": True,
     "backend_port": 8000,
     "log_level": "INFO",
