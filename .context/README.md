@@ -11,7 +11,7 @@ and the current release work without exposing runtime data or credentials.
 | --- | --- |
 | Finding the right code owner | `project.json`, then `inventory/modules.json` |
 | UI, API, Docker, downloads, or persistence | `architecture/runtime-and-api.md` |
-| Tests, builds, packages, CI, or releases | `operations/commands.yml` and `operations/release-status.md` |
+| Tests, builds, packages, CI, or releases | `operations/commands.yml` and `operations/release-contract.md` |
 | Windows/Linux behavior | `architecture/platform-policy.md` |
 | Existing release implementation decisions | `docs/superpowers/specs/2026-08-29-windows-linux-desktop-release-design.md` |
 
@@ -65,3 +65,5 @@ docs/superpowers/        Release design and implementation plan
 4. The native CI workflow is the delivery contract for Windows and Linux
    packages; keep its two independent build paths intact.
 5. Keep sensitive values out of source, logs, tests, and this directory.
+6. Backend tests run on both native OSes. Use native temporary paths for
+   filesystem assertions and inject a runtime when testing OS-specific behavior.

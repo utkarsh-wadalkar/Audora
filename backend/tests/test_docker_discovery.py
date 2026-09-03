@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import docker_manager  # noqa: E402
+from runtime_platform import create_runtime_platform  # noqa: E402
 
 EXE_NAME = "Docker Desktop.exe"
 
@@ -99,14 +100,10 @@ def test_default_roots_cover_both_documented_layouts(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
     monkeypatch.setenv("ProgramFiles", str(tmp_path / "Program Files"))
 
-    roots = [os.path.normcase(root) for root in docker_manager._default_install_roots()]
+    roots = list(docker_manager._default_install_roots())
 
-    assert any(
-        "programs" in root and "dockerdesktop" in root for root in roots
-    ), f"no per-user candidate in {roots}"
-    assert any(
-        "program files" in root and "docker" in root for root in roots
-    ), f"no all-users candidate in {roots}"
+    assert str(tmp_path / "Local" / "Programs" / "DockerDesktop") in roots
+    assert str(tmp_path / "Program Files" / "Docker" / "Docker") in roots
 
 
 def test_default_roots_survive_a_missing_localappdata(monkeypatch, tmp_path):
@@ -297,7 +294,13 @@ def test_start_uses_live_discovery_not_an_import_time_snapshot(monkeypatch, tmp_
     'Start Docker & Retry' has to find an install that appeared after startup.
     """
     _isolate(monkeypatch)
-    manager = docker_manager.DockerManager()
+    windows_runtime = create_runtime_platform(
+        system="Windows",
+        machine="AMD64",
+        environ={},
+        legacy_data_dir=tmp_path / "legacy-data",
+    )
+    manager = docker_manager.DockerManager(runtime_provider=lambda: windows_runtime)
     monkeypatch.setattr(manager, "is_docker_running", lambda: False)
 
     root = _make_install(tmp_path / "installed-later")
