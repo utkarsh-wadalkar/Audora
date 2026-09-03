@@ -38,6 +38,7 @@ def _make_mgr(
     docker_running=True,
     container_status="absent",
     listening=False,
+    wrapper_data_path=r"D:\audora\wrapper\rootfs\data",
 ):
     """A WrapperManager with every Docker touchpoint stubbed."""
     manager = WrapperManager()
@@ -54,7 +55,7 @@ def _make_mgr(
     monkeypatch.setattr(
         wrapper_manager,
         "get_settings",
-        lambda: {"wrapper_data_path": "D:\\audora\\wrapper\\rootfs\\data"},
+        lambda: {"wrapper_data_path": wrapper_data_path},
     )
     # Never start a real log-monitor thread.
     monkeypatch.setattr(manager, "_start_monitor", lambda container_id, is_login: None)
@@ -364,8 +365,9 @@ def test_runtime_twofa_path_keeps_every_reported_nested_segment(tmp_path):
     )
 
 
-def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch):
-    manager, _docker_mgr = _make_mgr(monkeypatch)
+def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch, tmp_path):
+    host_root = tmp_path / "rootfs" / "data"
+    manager, _docker_mgr = _make_mgr(monkeypatch, wrapper_data_path=str(host_root))
     raw_lines = []
     events = []
     manager.register_log_callback(raw_lines.append)
@@ -382,7 +384,7 @@ def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch):
             "path": "rootfs/data/2fa.txt",
         }
     ]
-    assert manager.get_twofa_host_path().endswith("rootfs\\data\\2fa.txt")
+    assert manager.get_twofa_host_path() == str(host_root / "2fa.txt")
 
 
 def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch):
@@ -395,8 +397,9 @@ def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch):
     assert events == [{"type": "auth_success", "message": "Signed in successfully"}]
 
 
-def test_later_example_command_refreshes_the_path_for_the_same_run(monkeypatch):
-    manager, _docker_mgr = _make_mgr(monkeypatch)
+def test_later_example_command_refreshes_the_path_for_the_same_run(monkeypatch, tmp_path):
+    host_root = tmp_path / "rootfs" / "data"
+    manager, _docker_mgr = _make_mgr(monkeypatch, wrapper_data_path=str(host_root))
 
     manager._inspect_log_line(
         "Enter your 2FA code into rootfs/data/2fa.txt", is_login=True
@@ -406,6 +409,4 @@ def test_later_example_command_refreshes_the_path_for_the_same_run(monkeypatch):
         is_login=True,
     )
 
-    assert manager.get_twofa_host_path().endswith(
-        "rootfs\\data\\current-version\\2fa.txt"
-    )
+    assert manager.get_twofa_host_path() == str(host_root / "current-version" / "2fa.txt")
