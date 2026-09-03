@@ -27,8 +27,12 @@ You will need:
 
 1. Go to the [Releases page](https://github.com/utkarsh-wadalkar/Audora/releases)
 2. Download the release file for your operating system:
-   - **Windows x64:** the `.exe` installer
-   - **Linux x64:** the `.AppImage` or `.deb` package
+   **Windows**
+→ Audora Setup 2.0.0.exe
+
+**Linux**
+├─ Ubuntu / Debian → audora_2.0.0_amd64.deb
+└─ Other distros   → Audora-2.0.0.AppImage
 3. Save it somewhere easy to find (like your Desktop)
 
 ---
