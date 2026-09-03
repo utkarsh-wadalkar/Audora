@@ -12,6 +12,10 @@ all operating-system decisions inside the explicit platform boundaries.
 | Linux x64 | `ubuntu-latest` | `backend` built by Linux PyInstaller | `.AppImage`, `.deb`, `.blockmap` |
 
 The release includes `SHA256SUMS.txt` for the Windows and Linux packages.
+Windows keeps `frontend/assets/audoralogo.ico`; Linux uses the same logo as
+`frontend/assets/audoralogo.png`. Linux packaging metadata (including the deb
+maintainer) is declared in `frontend/package.json`, with the repository as its
+homepage.
 macOS is not a target of Audora 2.0.0: there is no macOS runner, package target,
 signing, notarization, or platform implementation.
 

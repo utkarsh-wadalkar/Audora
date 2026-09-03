@@ -2,6 +2,7 @@
   "name": "audora",
   "version": "2.0.0",
   "description": "Desktop Music Downloader & Library Manager",
+  "homepage": "https://github.com/utkarsh-wadalkar/Audora",
   "author": "Utkarsh Wadalkar",
   "license": "SEE LICENSE IN LICENSE.txt",
   "main": "electron/main.js",
@@ -69,6 +70,8 @@
       "icon": "assets/audoralogo.ico"
     },
     "linux": {
+      "icon": "assets/audoralogo.png",
+      "maintainer": "Utkarsh Wadalkar <utkarsh-wadalkar@users.noreply.github.com>",
       "target": [
         "AppImage",
         "deb"
