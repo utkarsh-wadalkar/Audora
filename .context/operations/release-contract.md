@@ -46,7 +46,9 @@ from one build host into the other platform's package.
 - The packaged smoke probe assigns a fresh local port and a random backend
   token, which prevents a different process from satisfying the check.
 - Linux smoke runs under Xvfb so it verifies the real Linux package without a
-  physical display.
+  physical display. Before this unpacked launch, CI configures that build's
+  `chrome-sandbox` helper as root-owned with mode `4755`; Chromium sandboxing
+  stays enabled, and no system-wide user-namespace setting is changed.
 
 Exact commands and expected results are in `commands.yml`. Platform decisions
 are documented in `../architecture/platform-policy.md`.

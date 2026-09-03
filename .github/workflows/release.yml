@@ -72,7 +72,13 @@ jobs:
       - name: Smoke-test the packaged Linux application
         if: runner.os == 'Linux'
         working-directory: frontend
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npm run smoke -- ${{ matrix.unpacked }}
+        run: |
+          # Unpacked builds have not run the Linux installer's sandbox setup.
+          # Configure only this runner's helper; keep Chromium sandboxing enabled.
+          sandbox_helper="${{ matrix.unpacked }}/chrome-sandbox"
+          sudo chown root:root "$sandbox_helper"
+          sudo chmod 4755 "$sandbox_helper"
+          xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npm run smoke -- ${{ matrix.unpacked }}
       - name: Upload platform release artifacts
         uses: actions/upload-artifact@v6
         with:
