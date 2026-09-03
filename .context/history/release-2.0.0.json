@@ -56,7 +56,7 @@
     }
   ],
   "qualityGates": {
-    "backend": "214-test Python suite for application and platform behavior",
+    "backend": "218-test Python suite for application and platform behavior, including native 2FA parser-to-writer coverage",
     "electron": "13-test main-process/platform/smoke suite",
     "renderer": "TypeScript typecheck and Vite production bundle",
     "windowsPackage": "Native PyInstaller backend, NSIS x64 package, and packaged backend health validation",

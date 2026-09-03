@@ -28,6 +28,23 @@ packaged Linux backend. This prevents a Linux package from writing into its
 read-only resource directory. Windows deliberately receives no new overrides,
 preserving its legacy behavior.
 
+## 2FA file placement
+
+`wrapper_data_path` is the configurable host mount root (`.../rootfs/data`),
+not the Apple Music `files` directory. `wrapper_manager.resolve_twofa_host_path`
+maps the current wrapper prompt beneath `/app/rootfs/data` onto this root using
+native `os.path` operations; `AuthManager.submit_2fa` creates parents and writes
+the code without a newline. No host drive, username, or OS-specific separator
+is hardcoded into the 2FA resolver.
+
+The current Apple Music layout resolves to
+`<wrapper_data_path>/data/com.apple.android.music/files/2fa.txt`.
+Both `data` segments are intentional: one belongs to the mount root, the other
+to the container's application-data suffix. Windows uses backslashes; Linux
+uses slashes. The wrapper's current prompt remains authoritative if its layout
+changes. Tests exercise the real parser-to-writer flow with native temporary
+mounts, including relocated paths containing spaces.
+
 ## Packaging invariant
 
 Each CI matrix job first runs PyInstaller on its own host, then Electron Builder

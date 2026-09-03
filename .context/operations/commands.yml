@@ -11,7 +11,12 @@ canonical_commands:
     cwd: repository root
     command: backend\\.venv\\Scripts\\python.exe -m pytest backend/tests -q
     purpose: Run the entire backend test suite on Windows.
-    expected_result: "All backend tests pass; the established suite contains 214 tests."
+    expected_result: "All backend tests pass; the established suite contains 218 tests."
+  backend_tests_linux:
+    cwd: repository root on Linux
+    command: backend/.venv/bin/python -m pytest backend/tests -q
+    purpose: Run the same suite natively, including real 2FA writes under configured temporary mounts.
+    expected_result: "All 218 backend tests pass."
   electron_policy_tests:
     cwd: frontend
     command: npm run test:electron
@@ -61,7 +66,3 @@ ci:
     - Windows .exe and .blockmap
     - Linux .AppImage, .deb, and .blockmap
     - SHA256SUMS.txt
-
-environment_notes:
-  - The current local Windows npm launcher may be broken; invoking npm-cli.js with Node was used successfully for local verification. Standard npm is used in CI.
-  - The installed WSL Ubuntu lacks native Node.js and Python package prerequisites, so it is not evidence for Linux packaging. Do not use a Windows binary as a workaround.
