@@ -62,6 +62,13 @@
     "windowsPackage": "Native PyInstaller backend, NSIS x64 package, and packaged backend health validation",
     "linuxPackage": "Native PyInstaller backend, AppImage/deb x64 packages, and Xvfb packaged backend health validation"
   },
+  "verification": {
+    "workflowRun": "https://github.com/utkarsh-wadalkar/Audora/actions/runs/33745789014",
+    "releaseCommit": "8cde049f421ac7b10deeaf6255477ab64a2e8e4b",
+    "publishedAt": "2026-09-03T10:46:56Z",
+    "result": "success",
+    "scope": "Both native runners passed the 218 backend tests, 13 Electron tests, frontend typecheck/build, native PyInstaller and Electron packaging, and token-matched packaged backend health checks. Docker behavior is covered by isolated tests; the smoke launch does not perform an Apple Music sign-in."
+  },
   "delivery": {
     "workflow": ".github/workflows/release.yml",
     "trigger": "v2.0.0",
