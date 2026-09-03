@@ -34,11 +34,11 @@ class _FakeContainer:
 
 def _make_mgr(
     monkeypatch,
+    tmp_path,
     *,
     docker_running=True,
     container_status="absent",
     listening=False,
-    wrapper_data_path=r"D:\audora\wrapper\rootfs\data",
 ):
     """A WrapperManager with every Docker touchpoint stubbed."""
     manager = WrapperManager()
@@ -55,7 +55,7 @@ def _make_mgr(
     monkeypatch.setattr(
         wrapper_manager,
         "get_settings",
-        lambda: {"wrapper_data_path": wrapper_data_path},
+        lambda: {"wrapper_data_path": str(tmp_path / "rootfs" / "data")},
     )
     # Never start a real log-monitor thread.
     monkeypatch.setattr(manager, "_start_monitor", lambda container_id, is_login: None)
@@ -137,9 +137,9 @@ def test_probe_never_raises_on_unexpected_error(monkeypatch):
     assert manager.is_port_listening(10020) is False
 
 
-def test_wrapper_listening_requires_the_decrypt_port(monkeypatch):
+def test_wrapper_listening_requires_the_decrypt_port(monkeypatch, tmp_path):
     """10020 is the port downloads actually need, so it gates readiness."""
-    manager, docker_mgr = _make_mgr(monkeypatch)
+    manager, docker_mgr = _make_mgr(monkeypatch, tmp_path)
     probed = []
 
     def only_decrypt(port, host="127.0.0.1", timeout=1.0):
@@ -151,8 +151,8 @@ def test_wrapper_listening_requires_the_decrypt_port(monkeypatch):
     assert 10020 in probed
 
 
-def test_wrapper_not_listening_when_decrypt_port_is_dead(monkeypatch):
-    manager, docker_mgr = _make_mgr(monkeypatch)
+def test_wrapper_not_listening_when_decrypt_port_is_dead(monkeypatch, tmp_path):
+    manager, docker_mgr = _make_mgr(monkeypatch, tmp_path)
     monkeypatch.setattr(
         docker_mgr,
         "is_port_listening",
@@ -165,10 +165,10 @@ def test_wrapper_not_listening_when_decrypt_port_is_dead(monkeypatch):
 # Reuse: a live wrapper must not be torn down
 # ---------------------------------------------------------------------------
 
-def test_running_and_listening_wrapper_is_reused_untouched(monkeypatch):
+def test_running_and_listening_wrapper_is_reused_untouched(monkeypatch, tmp_path):
     """The core regression: no stop, no remove, no re-run."""
     manager, docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=True
+        monkeypatch, tmp_path, container_status="running", listening=True
     )
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
     stop_calls = _spy_stop_container(monkeypatch, docker_mgr)
@@ -180,10 +180,10 @@ def test_running_and_listening_wrapper_is_reused_untouched(monkeypatch):
     assert manager.is_wrapper_ready() is True
 
 
-def test_reuse_marks_ready_without_log_scraping(monkeypatch):
+def test_reuse_marks_ready_without_log_scraping(monkeypatch, tmp_path):
     """A fresh process has no monitor, so readiness must not need log markers."""
     manager, _docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=True
+        monkeypatch, tmp_path, container_status="running", listening=True
     )
     _spy_start_container(monkeypatch, _docker_mgr)
 
@@ -192,10 +192,10 @@ def test_reuse_marks_ready_without_log_scraping(monkeypatch):
     assert manager._ready is True
 
 
-def test_login_never_reuses_an_existing_container(monkeypatch):
+def test_login_never_reuses_an_existing_container(monkeypatch, tmp_path):
     """Login passes different args, so the container MUST be recreated."""
     manager, docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=True
+        monkeypatch, tmp_path, container_status="running", listening=True
     )
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
 
@@ -208,10 +208,10 @@ def test_login_never_reuses_an_existing_container(monkeypatch):
 # Fallback: force-remove only when the container is not serving
 # ---------------------------------------------------------------------------
 
-def test_exists_but_dead_container_is_recreated(monkeypatch):
+def test_exists_but_dead_container_is_recreated(monkeypatch, tmp_path):
     """exited/dead container -> fall through to the normal start path."""
     manager, docker_mgr = _make_mgr(
-        monkeypatch, container_status="exited", listening=False
+        monkeypatch, tmp_path, container_status="exited", listening=False
     )
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
 
@@ -219,10 +219,10 @@ def test_exists_but_dead_container_is_recreated(monkeypatch):
     assert len(start_calls) == 1, "a dead container should be replaced"
 
 
-def test_running_but_not_listening_container_is_recreated(monkeypatch):
+def test_running_but_not_listening_container_is_recreated(monkeypatch, tmp_path):
     """Container up but the wrapper inside never bound its port."""
     manager, docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=False
+        monkeypatch, tmp_path, container_status="running", listening=False
     )
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
 
@@ -230,9 +230,9 @@ def test_running_but_not_listening_container_is_recreated(monkeypatch):
     assert len(start_calls) == 1, "a non-serving container should be replaced"
 
 
-def test_absent_container_starts_normally(monkeypatch):
+def test_absent_container_starts_normally(monkeypatch, tmp_path):
     manager, docker_mgr = _make_mgr(
-        monkeypatch, container_status="absent", listening=False
+        monkeypatch, tmp_path, container_status="absent", listening=False
     )
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
 
@@ -240,8 +240,8 @@ def test_absent_container_starts_normally(monkeypatch):
     assert len(start_calls) == 1
 
 
-def test_start_still_fails_cleanly_when_docker_is_down(monkeypatch):
-    manager, docker_mgr = _make_mgr(monkeypatch, docker_running=False)
+def test_start_still_fails_cleanly_when_docker_is_down(monkeypatch, tmp_path):
+    manager, docker_mgr = _make_mgr(monkeypatch, tmp_path, docker_running=False)
     start_calls = _spy_start_container(monkeypatch, docker_mgr)
     events = []
     manager.register_auth_callback(events.append)
@@ -255,22 +255,22 @@ def test_start_still_fails_cleanly_when_docker_is_down(monkeypatch):
 # Readiness reporting consistency
 # ---------------------------------------------------------------------------
 
-def test_is_wrapper_ready_requires_the_port_not_just_running(monkeypatch):
+def test_is_wrapper_ready_requires_the_port_not_just_running(monkeypatch, tmp_path):
     """A running-but-not-bound container must not report ready.
 
     Otherwise /download skips the start and hands a dead port to the
     downloader.
     """
     manager, _docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=False
+        monkeypatch, tmp_path, container_status="running", listening=False
     )
     assert manager.is_wrapper_ready() is False
 
 
-def test_get_wrapper_status_reports_a_reused_wrapper_as_ready(monkeypatch):
+def test_get_wrapper_status_reports_a_reused_wrapper_as_ready(monkeypatch, tmp_path):
     """queue_processor gates on this dict; raw _ready would say not-ready."""
     manager, _docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=True
+        monkeypatch, tmp_path, container_status="running", listening=True
     )
     status = manager.get_wrapper_status()
     assert status["running"] is True
@@ -278,9 +278,9 @@ def test_get_wrapper_status_reports_a_reused_wrapper_as_ready(monkeypatch):
     assert status["message"] == "Ready"
 
 
-def test_get_wrapper_status_when_stopped(monkeypatch):
+def test_get_wrapper_status_when_stopped(monkeypatch, tmp_path):
     manager, _docker_mgr = _make_mgr(
-        monkeypatch, container_status="absent", listening=False
+        monkeypatch, tmp_path, container_status="absent", listening=False
     )
     status = manager.get_wrapper_status()
     assert status["running"] is False
@@ -288,10 +288,10 @@ def test_get_wrapper_status_when_stopped(monkeypatch):
     assert status["message"] == "Stopped"
 
 
-def test_wait_until_ready_succeeds_via_the_probe(monkeypatch):
+def test_wait_until_ready_succeeds_via_the_probe(monkeypatch, tmp_path):
     """A reused container never emits a fresh 'listening' log line."""
     manager, _docker_mgr = _make_mgr(
-        monkeypatch, container_status="running", listening=True
+        monkeypatch, tmp_path, container_status="running", listening=True
     )
     assert manager._ready is False
     assert manager.wait_until_ready(timeout=1) is True
@@ -301,8 +301,8 @@ def test_wait_until_ready_succeeds_via_the_probe(monkeypatch):
 # Config invariants that must not regress (v1.3.1)
 # ---------------------------------------------------------------------------
 
-def test_base_config_keeps_privileged_and_host_network(monkeypatch):
-    manager, _docker_mgr = _make_mgr(monkeypatch)
+def test_base_config_keeps_privileged_and_host_network(monkeypatch, tmp_path):
+    manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
     config = manager._base_config("-H 0.0.0.0")
 
     # The wrapper bind-mounts /dev/urandom and chroots; both need privileges.
@@ -367,7 +367,7 @@ def test_runtime_twofa_path_keeps_every_reported_nested_segment(tmp_path):
 
 def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch, tmp_path):
     host_root = tmp_path / "rootfs" / "data"
-    manager, _docker_mgr = _make_mgr(monkeypatch, wrapper_data_path=str(host_root))
+    manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
     raw_lines = []
     events = []
     manager.register_log_callback(raw_lines.append)
@@ -387,8 +387,8 @@ def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch, 
     assert manager.get_twofa_host_path() == str(host_root / "2fa.txt")
 
 
-def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch):
-    manager, _docker_mgr = _make_mgr(monkeypatch)
+def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch, tmp_path):
+    manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
     events = []
     manager.register_auth_callback(events.append)
 
@@ -399,7 +399,7 @@ def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch):
 
 def test_later_example_command_refreshes_the_path_for_the_same_run(monkeypatch, tmp_path):
     host_root = tmp_path / "rootfs" / "data"
-    manager, _docker_mgr = _make_mgr(monkeypatch, wrapper_data_path=str(host_root))
+    manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
 
     manager._inspect_log_line(
         "Enter your 2FA code into rootfs/data/2fa.txt", is_login=True
