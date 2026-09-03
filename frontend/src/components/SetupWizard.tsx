@@ -13,9 +13,9 @@ import SetupTerminalPanel, {
 import OfflineBanner from './OfflineBanner';
 
 interface SystemCheck {
-  windows: { ok: boolean; label: string };
-  docker: { installed: boolean; running: boolean; download_url: string };
-  wsl2: { ok: boolean };
+  platform: { ok: boolean; label: string };
+  docker: { installed: boolean; running: boolean; install_label: string; download_url: string };
+  wsl2: { applicable: boolean; ok: boolean };
   images: {
     downloader: boolean;
     audora_downloader: boolean;
@@ -514,13 +514,13 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               </div>
             ) : (
               <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/25 p-4">
-                <Row ok={check.windows.ok} label={check.windows.label} />
+                <Row ok={check.platform.ok} label={check.platform.label} />
                 <Row
                   ok={check.docker.installed}
-                  label={check.docker.installed ? 'Docker Desktop installed' : 'Docker Desktop not installed'}
+                  label={check.docker.installed ? `${check.docker.install_label} installed` : `${check.docker.install_label} not installed`}
                 />
                 <Row ok={check.docker.running} label="Docker Desktop running" />
-                <Row ok={check.wsl2.ok} label="WSL2 available" />
+                {check.wsl2.applicable && <Row ok={check.wsl2.ok} label="WSL2 available" />}
               </div>
             )}
             {check && !check.docker.installed && (
@@ -530,7 +530,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-audora-300 transition-colors hover:text-audora-200"
               >
-                <DownloadIcon size={14} /> Get Docker Desktop
+                <DownloadIcon size={14} /> Get {check.docker.install_label}
               </a>
             )}
             <div className="flex gap-2.5">

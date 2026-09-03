@@ -1,0 +1,71 @@
+{
+  "format": "audora-release-definition/v1",
+  "release": {
+    "version": "2.0.0",
+    "title": "Audora Windows + Linux Desktop Release",
+    "platforms": ["Windows x64", "Linux x64"],
+    "excludedPlatforms": ["macOS"]
+  },
+  "platformFeatures": [
+    {
+      "area": "Backend runtime boundary",
+      "paths": [
+        "backend/runtime_platform.py",
+        "backend/settings.py",
+        "backend/logger.py",
+        "backend/app.py",
+        "backend/backend.spec"
+      ],
+      "behavior": "Centralized writable paths/defaults, native executable naming, and smoke-friendly backend port/token support."
+    },
+    {
+      "area": "Docker, wrapper, library, downloads, setup",
+      "paths": [
+        "backend/docker_manager.py",
+        "backend/setup_manager.py",
+        "backend/downloader_image.py",
+        "backend/download_manager.py",
+        "backend/library_manager.py"
+      ],
+      "behavior": "Windows retains Docker Desktop/WSL integration; Linux uses Docker Engine guidance and avoids Windows-only commands."
+    },
+    {
+      "area": "Electron launch and packaging",
+      "paths": [
+        "frontend/electron/main.js",
+        "frontend/electron/platform.js",
+        "frontend/electron/smoke-packaged.js",
+        "frontend/package.json"
+      ],
+      "behavior": "Native backend command selection, writable Linux environment paths, Windows icon preservation, and token-isolated smoke launch."
+    },
+    {
+      "area": "UI, test coverage, delivery, and documentation",
+      "paths": [
+        "frontend/src/components/SetupWizard.tsx",
+        "backend/tests/test_backend_port.py",
+        "backend/tests/test_docker_platform.py",
+        "backend/tests/test_runtime_platform.py",
+        "backend/tests/test_setup_platform.py",
+        "frontend/electron/platform.test.js",
+        "frontend/electron/smoke-packaged.test.js",
+        ".github/workflows/release.yml",
+        "README.md"
+      ],
+      "behavior": "Platform-aware setup UI, focused cross-platform tests, native build automation, and Windows/Linux installation guidance."
+    }
+  ],
+  "qualityGates": {
+    "backend": "214-test Python suite for application and platform behavior",
+    "electron": "13-test main-process/platform/smoke suite",
+    "renderer": "TypeScript typecheck and Vite production bundle",
+    "windowsPackage": "Native PyInstaller backend, NSIS x64 package, and packaged backend health validation",
+    "linuxPackage": "Native PyInstaller backend, AppImage/deb x64 packages, and Xvfb packaged backend health validation"
+  },
+  "delivery": {
+    "workflow": ".github/workflows/release.yml",
+    "trigger": "v2.0.0",
+    "artifacts": ["Windows .exe", "Linux .AppImage", "Linux .deb", "platform blockmaps", "SHA256SUMS.txt"],
+    "invariant": "A platform package contains only the backend frozen by the same native platform build job."
+  }
+}

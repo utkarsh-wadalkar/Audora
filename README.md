@@ -15,30 +15,41 @@ Audora lets you download any 🍎 Music album, playlist, or track in **FLAC (los
 ## Before You Start
 
 You will need:
-- A Windows 10 or Windows 11 PC (64-bit)
+- A Windows 10 or Windows 11 PC (x64), or a Linux x64 computer
 - An active **🍎 Music subscription**
 - **Some free disk space** for setup
 - An internet connection
+- Docker Desktop (Windows) or a running Docker Engine (Linux)
 
 ---
 
 ## Step 1 — Download Audora
 
 1. Go to the [Releases page](https://github.com/utkarsh-wadalkar/Audora/releases)
-2. Click the latest **`Audora-Setup.exe`** to download it
+2. Download the release file for your operating system:
+   - **Windows x64:** the `.exe` installer
+   - **Linux x64:** the `.AppImage` or `.deb` package
 3. Save it somewhere easy to find (like your Desktop)
 
 ---
 
 ## Step 2 — Install Audora
 
-1. Double-click **`Audora-Setup.exe`**
+### Windows
+
+1. Double-click the downloaded **`.exe`** installer
 2. If Windows shows a blue warning screen saying *"Windows protected your PC"*:
    - Click **"More info"**
    - Click **"Run anyway"**
 3. Follow the installer — click **Next** → **Install** → **Finish**
 
 > This warning appears because Audora is new and not yet signed with a paid certificate. It is safe to install.
+
+### Linux
+
+Install the Debian package with your package manager, or mark the AppImage as
+executable and run it. Ensure Docker Engine is installed and running before
+opening Audora.
 
 ---
 
@@ -51,8 +62,9 @@ When you launch Audora for the first time, a **Setup Wizard** will open automati
 **✓ Check your system**
 It checks that your PC meets the requirements. Just wait — this is automatic.
 
-**✓ Install Docker Desktop** *(if not already installed)*
-Docker is a free tool that Audora uses in the background. You don't need to know what it does — Audora manages it for you.
+**✓ Check Docker** *(if not already installed)*
+Audora uses Docker in the background. On Windows it can help you find Docker
+Desktop; on Linux, install and start Docker Engine before opening Audora.
 
 - If prompted, click **Install**
 - Docker may ask you to **restart your PC** — go ahead and restart
@@ -158,7 +170,7 @@ Yes. Audora downloads tracks using your active 🍎 Music subscription. If your 
 Audora is intended for personal use only. Downloading music you have legitimately paid for (via subscription) for personal offline listening is a common practice, but you are responsible for complying with 🍎's Terms of Service in your region.
 
 **Will this work on Mac or Linux?**
-Not yet. Windows only for now.
+Audora supports Linux x64 as well as Windows x64. macOS is not supported.
 
 **Can I download my entire library at once?**
 Yes — paste a playlist URL and Audora will download every track in it.
@@ -172,11 +184,11 @@ Lossless FLAC files are roughly **30–50 MB per track**.
 
 | Requirement | Details |
 |-------------|---------|
-| OS | Windows 10 or 11 (64-bit) |
+| OS | Windows 10/11 x64 or Linux x64 |
 | Disk space | 4 GB for setup |
 | Internet | Required for downloading |
 | 🍎 Music | Active subscription required |
-| Docker Desktop | Installed automatically by Audora |
+| Docker | Docker Desktop on Windows; a running Docker Engine on Linux |
 
 ---
 

@@ -26,6 +26,7 @@ from typing import Callable, Optional
 
 from docker_manager import docker_mgr
 from logger import get_logger
+from runtime_platform import get_data_dir
 
 logger = get_logger("downloader-image")
 
@@ -49,8 +50,7 @@ COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
 
 # Where the generated Dockerfile is written. Mirrors the data/ convention used
 # by settings.py and download_manager.py.
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_CONTEXT_DIR = os.path.join(_BASE_DIR, "data", "downloader_image")
+BUILD_CONTEXT_DIR = os.path.join(str(get_data_dir()), "downloader_image")
 
 
 def write_dockerfile(directory: str = BUILD_CONTEXT_DIR) -> str:

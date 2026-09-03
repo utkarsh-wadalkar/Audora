@@ -1,0 +1,52 @@
+{
+  "format": "audora-agent-context/v1",
+  "release": {
+    "version": "2.0.0",
+    "name": "Audora Windows + Linux Desktop Release",
+    "desktopTargets": ["Windows x64", "Linux x64"],
+    "deliveryModel": "Each native runner freezes and packages its own backend before release artifact publication."
+  },
+  "product": {
+    "name": "Audora",
+    "purpose": "Desktop Apple Music lossless-download and local-library application.",
+    "userPrerequisites": [
+      "Active Apple Music subscription",
+      "Internet connection",
+      "Docker Desktop on Windows or running Docker Engine on Linux"
+    ]
+  },
+  "stack": {
+    "renderer": ["React 18", "TypeScript", "Vite 7", "Zustand", "Axios"],
+    "desktop": ["Electron 40", "electron-builder 26"],
+    "backend": ["Python", "FastAPI", "Uvicorn", "SQLAlchemy", "Docker SDK"],
+    "packaging": ["PyInstaller", "GitHub Actions"]
+  },
+  "entrypoints": {
+    "renderer": "frontend/src/main.tsx",
+    "electron": "frontend/electron/main.js",
+    "backend": "backend/app.py",
+    "backendPackageSpec": "backend/backend.spec",
+    "releaseWorkflow": ".github/workflows/release.yml"
+  },
+  "desktopSupport": {
+    "targets": ["Windows x64", "Linux x64"],
+    "notSupported": ["macOS"],
+    "platformBoundaries": [
+      "backend/runtime_platform.py",
+      "frontend/electron/platform.js"
+    ]
+  },
+  "readOrder": [
+    ".context/README.md",
+    ".context/inventory/modules.json",
+    ".context/architecture/runtime-and-api.md",
+    ".context/operations/release-contract.md"
+  ],
+  "safety": {
+    "neverCommit": [
+      "Apple Music or wrapper session data",
+      "runtime databases, settings, logs, downloaded music, generated artifacts"
+    ],
+    "releaseInvariant": "A backend executable is built and packaged only on its matching native operating system."
+  }
+}

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Notification, shell } = require('el
 const path = require('path');
 const fs = require('fs');
 const { createBackendProcessController } = require('./backend-process-controller');
+const { createBackendLaunchSpec, getWindowIcon, shouldCreateWindow } = require('./platform');
 
 let mainWindow;
 let backendShutdownComplete = false;
@@ -9,24 +10,23 @@ let backendShutdownPromise = null;
 let restartInProgress = null;
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
+const isSmokeTest = !shouldCreateWindow(process.env);
 const backendController = createBackendProcessController();
 
+// This runs before Electron's ready event. Package smoke tests exercise the
+// actual main process and frozen backend without requiring a display/GPU.
+if (isSmokeTest) app.disableHardwareAcceleration();
+
 function getBackendSpec() {
-  if (isDev) {
-    const backendDir = path.join(__dirname, '../../backend');
-    const venvPython = path.join(backendDir, '.venv', 'Scripts', 'python.exe');
-    const pythonExe = fs.existsSync(venvPython) ? venvPython : 'python';
-    return {
-      command: pythonExe,
-      args: ['-m', 'uvicorn', 'app:app', '--port', '8000'],
-      options: { cwd: backendDir, stdio: 'pipe' },
-    };
-  }
-  return {
-    command: path.join(process.resourcesPath, 'backend', 'backend.exe'),
-    args: [],
-    options: { stdio: 'pipe' },
-  };
+  return createBackendLaunchSpec({
+    platform: process.platform,
+    isDev,
+    resourcesPath: process.resourcesPath,
+    getAppPath: app.getPath.bind(app),
+    backendDir: path.join(__dirname, '../../backend'),
+    env: process.env,
+    exists: fs.existsSync,
+  });
 }
 
 function startBackend() {
@@ -50,7 +50,10 @@ function stopBackend() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    icon: path.join(__dirname, '../assets/audoralogo.ico'),
+    icon: getWindowIcon({
+      platform: process.platform,
+      assetsDir: path.join(__dirname, '../assets'),
+    }),
     width: 1400,
     height: 900,
     minWidth: 1200,
@@ -123,6 +126,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   await startBackend();
+  if (isSmokeTest) return;
   createWindow();
 
   app.on('activate', () => {

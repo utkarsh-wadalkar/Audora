@@ -1,0 +1,56 @@
+{
+  "format": "audora-module-map/v1",
+  "backend": {
+    "app.py": "FastAPI composition root: REST/WebSocket routes, service wiring, health endpoint, and Uvicorn launch.",
+    "runtime_platform.py": "Only backend owner of Windows/Linux runtime paths, executable name, Docker/WSL capabilities, and backend-port override.",
+    "settings.py": "Thread-safe JSON settings defaults and persistence.",
+    "database.py": "SQLAlchemy persistence for queue/history and library records.",
+    "download_manager.py": "Download orchestration and lifecycle.",
+    "queue_processor.py": "Sequential queue execution and pause/resume control.",
+    "downloader_config.py": "Constructs downloader commands/configuration.",
+    "downloader_image.py": "Downloader image lifecycle and assets.",
+    "wrapper_manager.py": "Wrapper container configuration, auth flow, and lifecycle.",
+    "docker_manager.py": "Docker discovery and Windows-only Desktop startup policy.",
+    "setup_manager.py": "First-run readiness checks, image/bootstrap flow, and setup state.",
+    "auth_manager.py": "Apple Music authentication and 2FA coordination.",
+    "library_manager.py": "Scans downloaded tracks and exposes library metadata/stream paths.",
+    "flac_converter.py": "Converts downloaded ALAC audio to FLAC using the managed image.",
+    "progress.py": "In-memory event broadcasters for progress, setup, auth, wrapper, and logs.",
+    "logger.py": "Application logging in the platform writable data directory.",
+    "diagnostics.py": "Support-report endpoint payload."
+  },
+  "frontend": {
+    "src/main.tsx": "Renderer bootstrap; HashRouter is required for packaged file:// routing.",
+    "src/App.tsx": "Application shell, routes, initial status refresh, global progress WebSocket.",
+    "src/api/client.ts": "Axios client for the local FastAPI service.",
+    "src/store/useAppStore.ts": "Shared app status, setup state, queue/download actions.",
+    "src/hooks/useWebSocket.ts": "Reconnect-capable WebSocket hook.",
+    "src/pages": "Download, queue, library, history, logs, settings, home, and about views.",
+    "src/components/SetupWizard.tsx": "First-run Docker/images/auth/wrapper setup flow; renders platform-specific Docker/WSL guidance from backend data."
+  },
+  "electron": {
+    "electron/main.js": "Main-process lifecycle, backend process controller, BrowserWindow, and safe IPC handlers.",
+    "electron/platform.js": "Only Electron owner of Windows/Linux executable, dev interpreter, data-path, and icon policy.",
+    "electron/backend-process-controller.js": "Starts/stops/restarts backend process trees without duplicates.",
+    "electron/preload.js": "Minimal context-isolated renderer API: open folder, notification, folder picker.",
+    "electron/smoke-packaged.js": "Launches an unpacked packaged app with a unique port/token and checks its backend health."
+  },
+  "delivery": {
+    "backend/backend.spec": "PyInstaller COLLECT build; platform-native executable is named backend.exe on Windows and backend on Linux.",
+    "frontend/package.json": "Frontend scripts, electron-builder targets, extraResources backend inclusion.",
+    ".github/workflows/release.yml": "Tag-driven native Windows/Linux build, test, package, smoke-test, artifact, checksum, and GitHub Release workflow.",
+    "docs/superpowers": "Design rationale and implementation plan for the current desktop-release work."
+  },
+  "testAreas": {
+    "backend/tests": [
+      "auth, Docker discovery/manager/platform behavior, downloader command/stages/config, FLAC conversion",
+      "library/settings/database behaviors, progress, setup/wrapper, diagnostics, utilities",
+      "runtime platform and backend-port policy"
+    ],
+    "frontend/electron/*.test.js": [
+      "backend process-tree lifecycle",
+      "Windows/Linux launch policy",
+      "packaged-backend smoke polling and token isolation"
+    ]
+  }
+}

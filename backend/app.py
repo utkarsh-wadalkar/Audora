@@ -37,6 +37,7 @@ from schemas import (
     SettingsUpdate,
     DockerStatus,
 )
+from runtime_platform import get_backend_port
 
 logger = get_logger("app")
 
@@ -275,7 +276,11 @@ app.add_middleware(
 # --- Health & Docker ---
 @app.get("/health")
 def health():
-    return ApiResponse(success=True, data={"status": "ok"})
+    data = {"status": "ok"}
+    smoke_token = os.environ.get("AUDORA_SMOKE_TOKEN")
+    if smoke_token:
+        data["smoke_token"] = smoke_token
+    return ApiResponse(success=True, data=data)
 
 
 @app.get("/docker/status", response_model=ApiResponse)
@@ -686,4 +691,4 @@ if __name__ == "__main__":
 
     _settings = get_settings()
     setup_logger(_settings.get("log_level", "INFO"))
-    uvicorn.run(app, host="127.0.0.1", port=_settings.get("backend_port", 8000))
+    uvicorn.run(app, host="127.0.0.1", port=get_backend_port(os.environ))

@@ -1,11 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — builds backend/app.py into a standalone backend.exe.
+"""PyInstaller spec — builds backend/app.py into a native standalone backend.
 
 Build:  pyinstaller backend.spec  (run from the backend/ directory)
-Output: backend/dist/backend/backend.exe
+Output: backend/dist/backend/backend(.exe on Windows)
 
 Note: The SQLite DB, settings.json, logs, and album_art are created at
-runtime under a writable data/ dir next to the exe — they are NOT bundled.
+runtime in a writable platform data directory — they are NOT bundled. See
+runtime_platform.py for the centralized Windows and Linux locations.
 """
 import os
 

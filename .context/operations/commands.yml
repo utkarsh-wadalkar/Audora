@@ -1,0 +1,67 @@
+format: audora-agent-commands/v1
+release_profile: Audora 2.0.0 Windows x64 + Linux x64
+
+principles:
+  - Read .context before running a command; only execute commands needed for the requested change.
+  - Do not inspect runtime databases, wrapper session data, logs, downloads, or generated artifacts for routine orientation.
+  - Run native packaging only on the target operating system; never reuse a frozen backend executable across OSes.
+
+canonical_commands:
+  backend_tests:
+    cwd: repository root
+    command: backend\\.venv\\Scripts\\python.exe -m pytest backend/tests -q
+    purpose: Run the entire backend test suite on Windows.
+    expected_result: "All backend tests pass; the established suite contains 214 tests."
+  electron_policy_tests:
+    cwd: frontend
+    command: npm run test:electron
+    purpose: Run main-process process-tree, platform launch policy, and packaged-smoke helper tests.
+    expected_result: "All Electron policy tests pass; the established suite contains 13 tests."
+  frontend_typecheck:
+    cwd: frontend
+    command: npm run typecheck
+    purpose: Type-check the React/Vite TypeScript application.
+    expected_result: TypeScript exits successfully with no type errors.
+  frontend_build:
+    cwd: frontend
+    command: npm run build
+    purpose: Type-check and create the Vite renderer production bundle.
+    expected_result: Vite creates the renderer production bundle.
+  freeze_backend_windows:
+    cwd: backend
+    command: python -m PyInstaller --noconfirm --clean backend.spec
+    purpose: Create the Windows-native backend bundle at backend/dist/backend/backend.exe.
+    expected_result: A Windows-native backend bundle is created and accepts its health probe.
+  package_windows:
+    cwd: frontend
+    command: npx electron-builder --win nsis --x64 --publish never
+    purpose: Package the current Windows-native backend into the NSIS x64 installer.
+    expected_result: NSIS x64 packaging includes the backend produced by the same Windows build host.
+  smoke_unpacked_windows:
+    cwd: frontend
+    command: npm run smoke -- dist-electron/win-unpacked
+    purpose: Launch the unpacked application in noninteractive smoke mode and require its own health token.
+  package_linux_native:
+    cwd: frontend on Linux
+    command: npx electron-builder --linux AppImage deb --x64 --publish never
+    purpose: Package only a backend frozen by the same Linux host.
+    authoritative_runner: ubuntu-latest in .github/workflows/release.yml
+  smoke_unpacked_linux:
+    cwd: frontend on Linux
+    command: xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" npm run smoke -- dist-electron/linux-unpacked
+    purpose: Validate packaged Linux Electron/backend launch without a physical display.
+    authoritative_runner: ubuntu-latest in .github/workflows/release.yml
+
+ci:
+  trigger: Versioned release tag; Audora 2.0.0 uses v2.0.0.
+  jobs:
+    - windows-latest: tests, native PyInstaller, NSIS x64 package, smoke test, Windows artifacts
+    - ubuntu-latest: tests, native PyInstaller, AppImage/deb x64 packages, Xvfb smoke test, Linux artifacts
+  release_outputs:
+    - Windows .exe and .blockmap
+    - Linux .AppImage, .deb, and .blockmap
+    - SHA256SUMS.txt
+
+environment_notes:
+  - The current local Windows npm launcher may be broken; invoking npm-cli.js with Node was used successfully for local verification. Standard npm is used in CI.
+  - The installed WSL Ubuntu lacks native Node.js and Python package prerequisites, so it is not evidence for Linux packaging. Do not use a Windows binary as a workaround.

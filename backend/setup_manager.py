@@ -21,7 +21,6 @@ additively; existing keys and ``status`` values (``pending|running|done|
 error``) are never renamed or removed, so the live wizard keeps working.
 """
 import os
-import platform
 import shutil
 import subprocess
 import threading
@@ -35,12 +34,12 @@ import downloader_image
 from docker_manager import docker_mgr
 from settings import get_settings, update_settings
 from logger import get_logger
+from runtime_platform import get_runtime_platform
 
 logger = get_logger("setup")
 
 DOWNLOADER_IMAGE = "ghcr.io/zhaarey/apple-music-downloader"
 WRAPPER_IMAGE = "wrapper"
-DOCKER_DESKTOP_URL = "https://www.docker.com/products/docker-desktop/"
 
 # Canonical setup orchestration order. Consumers such as diagnostics and the
 # wizard's REST/WebSocket contract import this instead of maintaining a second
@@ -508,24 +507,31 @@ class SetupManager:
     # --- System checks ---
     def check_system(self) -> Dict:
         """Return a system-readiness report for the wizard's Screen 2."""
-        win_ok = platform.system() == "Windows"
-        win_ver = platform.version()
+        runtime = get_runtime_platform()
+        win_ok = runtime.system == "Windows"
         docker_installed = self._docker_installed()
         docker_running = docker_mgr.is_docker_running()
         wsl_ok = self._wsl_available()
 
         return {
+            # New platform-neutral field consumed by the cross-platform
+            # wizard.  Keep ``windows`` below for existing Windows clients.
+            "platform": {
+                "ok": True,
+                "label": "Windows 10/11" if win_ok else "Linux x64",
+            },
             "windows": {
                 "ok": win_ok,
-                "version": win_ver,
-                "label": "Windows 10/11" if win_ok else f"{platform.system()} (unsupported)",
+                "version": runtime.system_version,
+                "label": "Windows 10/11" if win_ok else "Linux (unsupported)",
             },
             "docker": {
                 "installed": docker_installed,
                 "running": docker_running,
-                "download_url": DOCKER_DESKTOP_URL,
+                "install_label": runtime.docker_install_label,
+                "download_url": runtime.docker_download_url,
             },
-            "wsl2": {"ok": wsl_ok},
+            "wsl2": {"applicable": runtime.requires_wsl, "ok": wsl_ok},
             "images": {
                 "downloader": docker_mgr.image_exists(DOWNLOADER_IMAGE),
                 # Audora's derived image (upstream + ffmpeg) is what downloads
@@ -538,6 +544,8 @@ class SetupManager:
     def _docker_installed(self) -> bool:
         if shutil.which("docker"):
             return True
+        if not get_runtime_platform().supports_docker_desktop_start:
+            return False
         return any(
             os.path.exists(p)
             for p in (
@@ -547,7 +555,7 @@ class SetupManager:
         )
 
     def _wsl_available(self) -> bool:
-        if platform.system() != "Windows":
+        if not get_runtime_platform().requires_wsl:
             return False
         try:
             result = subprocess.run(
@@ -669,7 +677,7 @@ class SetupManager:
             return os.path.dirname(os.path.dirname(normalised))
         if normalised:
             return normalised
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "wrapper")
+        return os.path.join(str(get_runtime_platform().data_dir), "wrapper")
 
     def _download_file(self, url: str, dest: str) -> None:
         """Stream ``url`` to ``dest``. Raises on any network/IO error."""
