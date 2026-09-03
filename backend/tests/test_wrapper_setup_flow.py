@@ -3,6 +3,8 @@ import asyncio
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as app_module  # noqa: E402
@@ -86,3 +88,34 @@ def test_real_parser_to_writer_flow_creates_the_reported_2fa_file(
     assert writer.submit_2fa("123456") is True
     target = data_root / "current-run" / "2fa.txt"
     assert target.read_bytes() == b"123456"
+
+
+@pytest.mark.parametrize("volume_name", ["wrapper", "Custom wrapper location"])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "[!] Enter your 2FA code into rootfs/data/data/com.apple.android.music/files/2fa.txt",
+        "Example command: echo -n 114514 > /app/rootfs/data/data/com.apple.android.music/files/2fa.txt",
+    ],
+)
+def test_apple_music_twofa_write_uses_the_configured_native_volume(
+    tmp_path, monkeypatch, volume_name, prompt
+):
+    """The real writer keeps the full suffix on each native OS and custom mount."""
+    data_root = tmp_path / volume_name / "rootfs" / "data"
+    settings = {"wrapper_data_path": str(data_root)}
+    manager = wrapper_manager.WrapperManager()
+    monkeypatch.setattr(wrapper_manager, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth_manager, "get_settings", lambda: settings)
+    monkeypatch.setattr(manager, "_start_2fa_watchdog", lambda: None)
+    monkeypatch.setattr(auth_manager, "wrapper_mgr", manager)
+
+    manager._inspect_log_line(prompt, is_login=True)
+    writer = auth_manager.AuthManager()
+    target = data_root / "data" / "com.apple.android.music" / "files" / "2fa.txt"
+
+    assert writer.twofa_path() == str(target)
+    assert writer.submit_2fa(" 123456\n") is True
+    assert target.read_bytes() == b"123456"
+    assert not (data_root / "2fa.txt").exists()
+    assert list(data_root.rglob("2fa.txt")) == [target]

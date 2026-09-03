@@ -373,7 +373,7 @@ def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch, 
     manager.register_log_callback(raw_lines.append)
     manager.register_auth_callback(events.append)
 
-    line = "[!] Enter your 2FA code into rootfs/data/2fa.txt"
+    line = "[!] Enter your 2FA code into rootfs/data/data/com.apple.android.music/files/2fa.txt"
     manager._inspect_log_line(line, is_login=False)
 
     assert raw_lines == [{"sequence": 1, "line": line}]
@@ -381,10 +381,12 @@ def test_wrapper_emits_raw_log_and_twofa_state_from_runtime_prompt(monkeypatch, 
         {
             "type": "auth_2fa_required",
             "message": "Enter your 6-digit verification code",
-            "path": "rootfs/data/2fa.txt",
+            "path": "rootfs/data/data/com.apple.android.music/files/2fa.txt",
         }
     ]
-    assert manager.get_twofa_host_path() == str(host_root / "2fa.txt")
+    assert manager.get_twofa_host_path() == str(
+        host_root / "data" / "com.apple.android.music" / "files" / "2fa.txt"
+    )
 
 
 def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch, tmp_path):
