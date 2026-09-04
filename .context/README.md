@@ -14,6 +14,7 @@ and the current release work without exposing runtime data or credentials.
 | Tests, builds, packages, CI, or releases | `operations/commands.yml` and `operations/release-contract.md` |
 | Windows/Linux behavior | `architecture/platform-policy.md` |
 | Existing release implementation decisions | `docs/superpowers/specs/2026-08-29-windows-linux-desktop-release-design.md` |
+| Marketing website, music showcase, screenshots, or Vercel deployment | `../marketing/README.md`, `../marketing/ASSETS.md`, and `../marketing/lib/songs.generated.ts` |
 
 ## Product profile and maintenance contract
 
@@ -49,6 +50,7 @@ backend/tests/           Python unit and endpoint tests
 frontend/src/            React/Vite renderer
 frontend/electron/       Electron main process, platform policy, smoke helper
 frontend/assets/         Packaged application assets
+marketing/               Standalone Next.js static marketing site (Vercel root)
 .github/workflows/       Native Windows/Linux release automation
 docs/superpowers/        Release design and implementation plan
 .context/                This agent-oriented, low-token knowledge base
