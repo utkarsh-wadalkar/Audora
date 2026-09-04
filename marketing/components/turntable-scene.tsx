@@ -9,6 +9,31 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 
 type SceneProps = { spinning: boolean; visible: boolean; turn: number; reset: number; coverSrc: string; onReady: () => void; onUnavailable: () => void };
 
+const DECK_SURFACE_Y = .405;
+const RECORD_SURFACE_Y = .636;
+const CARTRIDGE_POSITION: [number, number, number] = [.49, .80, 1.24];
+const CARTRIDGE_ROTATION_Y = .22;
+const TONEARM_TUBE_RADIUS = .037;
+const CUE_SUPPORT_HEIGHT = .45;
+const TONEARM_SUPPORT_POINT = new Vector3(
+  1.64,
+  DECK_SURFACE_Y + CUE_SUPPORT_HEIGHT + TONEARM_TUBE_RADIUS + .005,
+  .38,
+);
+const CARTRIDGE_REAR = new Vector3(.215, 0, 0)
+  .applyAxisAngle(new Vector3(0, 1, 0), CARTRIDGE_ROTATION_Y)
+  .add(new Vector3(...CARTRIDGE_POSITION));
+const CUE_SUPPORT_POSITION: [number, number, number] = [
+  TONEARM_SUPPORT_POINT.x,
+  DECK_SURFACE_Y + CUE_SUPPORT_HEIGHT / 2,
+  TONEARM_SUPPORT_POINT.z,
+];
+const STYLUS_POSITION: [number, number, number] = [
+  -.15,
+  RECORD_SURFACE_Y + .012 - CARTRIDGE_POSITION[1],
+  -.03,
+];
+
 function makeDiscTexture() {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 2048;
   const ctx = canvas.getContext('2d')!;
@@ -46,8 +71,8 @@ function Turntable({ spinning, coverSrc }: { spinning: boolean; coverSrc: string
     return texture;
   }, [coverSrc, invalidate]);
   const armGeometry = useMemo(() => new TubeGeometry(new CatmullRomCurve3([
-    new Vector3(1.93, .84, -.99), new Vector3(1.91, .87, -.58), new Vector3(1.64, .84, .38), new Vector3(.98, .79, 1.12), new Vector3(.7, .78, 1.2),
-  ]), 48, .037, 12, false), []);
+    new Vector3(1.93, .84, -.99), new Vector3(1.91, .87, -.58), TONEARM_SUPPORT_POINT.clone(), new Vector3(.98, .82, 1.12), CARTRIDGE_REAR.clone(),
+  ]), 48, TONEARM_TUBE_RADIUS, 12, false), []);
   const vinylMaterial = useMemo(() => new MeshPhysicalMaterial({ map: discTexture, color: '#c5c5c5', metalness: .56, roughness: .28, clearcoat: .75, clearcoatRoughness: .2 }), [discTexture]);
   useEffect(() => () => labelTexture.dispose(), [labelTexture]);
   useEffect(() => () => { discTexture.dispose(); armGeometry.dispose(); vinylMaterial.dispose(); }, [discTexture, armGeometry, vinylMaterial]);
@@ -79,12 +104,12 @@ function Turntable({ spinning, coverSrc }: { spinning: boolean; coverSrc: string
       <mesh position={[0, .24, -.42]} rotation={[Math.PI / 2, 0, 0]} castShadow><cylinderGeometry args={[.215, .215, .24, 48]} /><meshStandardMaterial color="#363b3d" metalness={.78} roughness={.26} /></mesh>
     </group>
     <mesh geometry={armGeometry} castShadow><meshStandardMaterial color="#bcc1c0" metalness={.98} roughness={.16} /></mesh>
-    <group position={[.65, .77, 1.19]} rotation={[0, .22, 0]}>
+    <group position={CARTRIDGE_POSITION} rotation={[0, CARTRIDGE_ROTATION_Y, 0]}>
       <RoundedBlock size={[.43, .09, .19]} position={[0, 0, 0]} color="#b7b7ac" radius={.018} />
-      <RoundedBlock size={[.19, .11, .14]} position={[-.09, -.08, 0]} color="#b2905d" radius={.012} roughness={.35} />
-      <mesh position={[-.14, -.15, 0]}><boxGeometry args={[.035, .05, .022]} /><meshStandardMaterial color="#c6c4b9" metalness={.9} roughness={.1} /></mesh>
+      <RoundedBlock size={[.19, .09, .13]} position={[-.12, -.095, -.02]} color="#b2905d" radius={.012} roughness={.35} />
+      <mesh position={STYLUS_POSITION}><cylinderGeometry args={[.008, .001, .024, 12]} /><meshStandardMaterial color="#d7d3c7" metalness={.92} roughness={.12} /></mesh>
     </group>
-    <mesh position={[1.82, .63, .48]}><cylinderGeometry args={[.055, .085, .45, 20]} /><meshStandardMaterial color="#555b5b" metalness={.9} roughness={.3} /></mesh>
+    <mesh position={CUE_SUPPORT_POSITION}><cylinderGeometry args={[.055, .085, CUE_SUPPORT_HEIGHT, 20]} /><meshStandardMaterial color="#555b5b" metalness={.9} roughness={.3} /></mesh>
     <group position={[-2.37, .44, 1.5]}>
       <mesh castShadow><cylinderGeometry args={[.22, .23, .1, 48]} /><meshStandardMaterial color="#929891" metalness={.95} roughness={.24} /></mesh>
       <mesh position={[0, .06, 0]}><cylinderGeometry args={[.183, .183, .025, 48]} /><meshStandardMaterial color="#303535" metalness={.8} roughness={.22} /></mesh>
