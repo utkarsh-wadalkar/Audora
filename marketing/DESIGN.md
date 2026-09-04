@@ -29,7 +29,8 @@ the page links to GitHub without claiming an open-source license.
 
 Every download points to the stable GitHub releases page. Before downloading,
 visitors can see the Apple Music subscription, Docker, and x64 requirements.
-No sign-up, remote API, analytics service, or runtime backend is required.
+No sign-up, remote application API, or runtime backend is required. Vercel Web
+Analytics measures visits through the statically deployed marketing site.
 
 ## Implementation and validation plan
 

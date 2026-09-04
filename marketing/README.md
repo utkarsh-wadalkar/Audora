@@ -1,8 +1,9 @@
 # Audora marketing
 
 A standalone Next.js App Router site that exports static HTML to `out/`.
-There is no server, API route, account system, tracking service, or dependency
-on the Electron/Python app at runtime. The desktop application is unchanged.
+There is no app server, API route, account system, or dependency on the
+Electron/Python app at runtime. Vercel Web Analytics records page visits through
+the official `@vercel/analytics` package. The desktop application is unchanged.
 
 ## Local use
 
@@ -84,7 +85,7 @@ centralized in `lib/site.ts`; update `RELEASE_VERSION` when releasing the app.
 
 ```js
 window.addEventListener('audora:cta', ({ detail }) => {
-  // Connect your chosen analytics service here later.
+  // Optionally bridge this detail to a custom analytics event.
   // { id: 'download-windows', intent: 'download',
   //   platform: 'windows', href: 'https://github.com/.../releases' }
 });
