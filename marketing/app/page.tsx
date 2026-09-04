@@ -51,7 +51,7 @@ export default function Home() {
             <a className="release-note" href={`${GITHUB_URL}/releases/tag/v${RELEASE_VERSION}`}>
               <span className="release-dot" /> v{RELEASE_VERSION} <span className="release-divider">/</span> Made for the music <ArrowUpRight size={13} aria-hidden="true" />
             </a>
-            <h1 id="hero-title">Your music.<br /><span>All the detail.</span></h1>
+            <h1 id="hero-title">Music worth keeping.</h1>
             <p>Your Apple Music favorites, in lossless FLAC.<br className="desktop-break" /> Download, collect, and listen. All in one app.</p>
             <div className="hero-actions">
               <DownloadLink location="hero" />
