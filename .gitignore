@@ -162,3 +162,5 @@ wrapper/*.xz
 /notes 
 .claude/
 .codex/
+.vercel
+.env*
