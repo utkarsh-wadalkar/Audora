@@ -9,8 +9,10 @@ marketing runtime remain independent.
 - Vercel Web Analytics records privacy-focused page traffic for the private
   owner dashboard.
 - Supabase project `Audora Web` stores one random browser identifier with first
-  and last-seen timestamps. The public site reads aggregate 30-day and lifetime
-  counts only.
+  and last-seen timestamps. The public proof panel reads aggregate first-visit
+  counts for this month, last month, lifetime, and the latest 14 calendar days.
+  It never exposes a browser identifier or converts website clicks into
+  download claims.
 - GitHub's public releases API is the source for completed release-asset download
   counts. Website click events are not presented as completed downloads.
 - Only consented, manually published feedback is rendered as a testimonial.
@@ -25,9 +27,10 @@ marketing runtime remain independent.
   status.
 
 RLS is enabled on every table. Browser calls use only the Supabase publishable
-key. Public functions run as the caller. A non-callable trigger function in the
-unexposed `private` schema updates the aggregate row. No Supabase secret key is
-present in source or the browser.
+key and read the single aggregate row. A non-callable trigger function in the
+unexposed `private` schema refreshes its counts and 14-day series whenever
+visitor or feedback data changes. No Supabase secret key is present in source
+or the browser.
 
 ## Review workflow
 

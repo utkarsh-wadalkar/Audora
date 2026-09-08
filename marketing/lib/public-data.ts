@@ -1,7 +1,14 @@
+export type DailyVisitor = {
+  date: string;
+  count: number;
+};
+
 export type PublicEvidence = {
-  activeVisitors30d: number;
+  thisMonth: number;
+  lastMonth: number;
   visitorsTotal: number;
   publishedReviews: number;
+  dailyVisitors: DailyVisitor[];
 };
 
 export type PublicReview = {

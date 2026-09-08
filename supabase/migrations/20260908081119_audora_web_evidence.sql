@@ -23,8 +23,11 @@ create table public.feedback_submissions (
 create table public.site_metrics (
   singleton boolean primary key default true check (singleton),
   active_visitors_30d bigint not null default 0,
+  visitors_this_month bigint not null default 0,
+  visitors_last_month bigint not null default 0,
   visitors_total bigint not null default 0,
   published_reviews bigint not null default 0,
+  daily_first_visitors jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -147,9 +150,11 @@ security invoker
 set search_path = ''
 as $$
   select jsonb_build_object(
-    'activeVisitors30d', metrics.active_visitors_30d,
+    'thisMonth', metrics.visitors_this_month,
+    'lastMonth', metrics.visitors_last_month,
     'visitorsTotal', metrics.visitors_total,
-    'publishedReviews', metrics.published_reviews
+    'publishedReviews', metrics.published_reviews,
+    'dailyVisitors', metrics.daily_first_visitors
   ) from public.site_metrics as metrics where metrics.singleton;
 $$;
 
@@ -193,10 +198,36 @@ begin
       select count(*) from public.site_visitors
       where last_seen >= now() - interval '30 days'
     ),
+    visitors_this_month = (
+      select count(*) from public.site_visitors
+      where first_seen >= date_trunc('month', now())
+    ),
+    visitors_last_month = (
+      select count(*) from public.site_visitors
+      where first_seen >= date_trunc('month', now()) - interval '1 month'
+        and first_seen < date_trunc('month', now())
+    ),
     visitors_total = (select count(*) from public.site_visitors),
     published_reviews = (
       select count(*) from public.feedback_submissions
       where status = 'published' and consent_to_publish
+    ),
+    daily_first_visitors = (
+      select jsonb_agg(
+        jsonb_build_object(
+          'date', to_char(daily.visit_date, 'YYYY-MM-DD'),
+          'count', daily.visitor_count
+        ) order by daily.visit_date
+      ) from (
+        select
+          day::date as visit_date,
+          count(visitor.visitor_id)::bigint as visitor_count
+        from generate_series(current_date - 13, current_date, interval '1 day') as day
+        left join public.site_visitors as visitor
+          on visitor.first_seen >= day
+          and visitor.first_seen < day + interval '1 day'
+        group by day
+      ) as daily
     ),
     updated_at = now()
   where singleton;

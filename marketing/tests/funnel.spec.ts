@@ -78,7 +78,16 @@ test('conversion hook reports intent without intercepting a real link', async ({
 test('live evidence, moderated reviews and feedback states work', async ({ page }) => {
   await page.route('**/rest/v1/rpc/record_site_visit', route => route.fulfill({ status: 204 }));
   await page.route('**/rest/v1/rpc/get_public_evidence', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ activeVisitors30d: 19, visitorsTotal: 31, publishedReviews: 1 }),
+    contentType: 'application/json', body: JSON.stringify({
+      thisMonth: 19,
+      lastMonth: 12,
+      visitorsTotal: 31,
+      publishedReviews: 1,
+      dailyVisitors: [
+        { date: '2026-08-26', count: 1 }, { date: '2026-08-27', count: 2 },
+        { date: '2026-08-28', count: 0 }, { date: '2026-08-29', count: 3 },
+      ],
+    }),
   }));
   await page.route('**/rest/v1/rpc/get_public_reviews', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify([{
@@ -102,7 +111,11 @@ test('live evidence, moderated reviews and feedback states work', async ({ page 
   await page.goto('/');
   await page.locator('#community').scrollIntoViewIfNeeded();
   await expect(page.getByText('19', { exact: true })).toBeVisible();
-  await expect(page.getByText('42', { exact: true })).toBeVisible();
+  await expect(page.getByText('This month', { exact: true })).toBeVisible();
+  await expect(page.getByText('Last month', { exact: true })).toBeVisible();
+  await expect(page.getByText('Total', { exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Daily first-time visitor activity' })).toBeVisible();
+  await expect(page.getByText('42 verified release downloads on GitHub', { exact: true })).toBeVisible();
   await expect(page.getByText('Test Listener')).toBeVisible();
   await expect(page.getByLabel('5 out of 5 stars')).toBeVisible();
 
