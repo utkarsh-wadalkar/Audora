@@ -1,6 +1,8 @@
 import Image from 'next/image';
 import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUpRight, Check, Disc3, Github, Monitor, Plus, Terminal } from 'lucide-react';
 import { CtaLink } from '../components/cta-link';
+import { CommunityProof } from '../components/community-proof';
+import { FeedbackForm } from '../components/feedback-form';
 import { ProductShowcase } from '../components/product-showcase';
 import { GITHUB_URL, GUIDE_URL, RELEASES_URL, RELEASE_VERSION, SITE_URL, description } from '../lib/site';
 
@@ -38,7 +40,7 @@ export default function Home() {
       <div className="container nav-inner">
         <a className="brand-link" href="#" aria-label="Audora home"><Wordmark /></a>
         <nav aria-label="Main navigation">
-          <a href="#experience">The experience</a><a href="#how-it-works">How it works</a><a href="#faq">FAQ</a>
+          <a href="#experience">The experience</a><a href="#how-it-works">How it works</a><a href="#feedback">Feedback</a><a href="#faq">FAQ</a>
         </nav>
         <DownloadLink location="nav" className="button button-small button-outline" />
       </div>
@@ -49,7 +51,7 @@ export default function Home() {
         <div className="container hero-grid">
           <div className="hero-copy">
             <a className="release-note" href={`${GITHUB_URL}/releases/tag/v${RELEASE_VERSION}`}>
-              <span className="release-dot" /> v{RELEASE_VERSION} <span className="release-divider">/</span> Made for the music <ArrowUpRight size={13} aria-hidden="true" />
+              <span className="release-dot" /> Latest desktop release <span className="release-divider">/</span> Windows and Linux <ArrowUpRight size={13} aria-hidden="true" />
             </a>
             <h1 id="hero-title">Music worth keeping.</h1>
             <p>Your Apple Music favorites, in lossless FLAC.<br className="desktop-break" /> Download, collect, and listen. All in one app.</p>
@@ -84,9 +86,9 @@ export default function Home() {
         <div className="container">
           <div className="workflow-intro"><span className="eyebrow">LESS BETWEEN YOU AND THE MUSIC</span><h2 id="workflow-title">From found it.<br />To on repeat.</h2><p>A simple flow, from your first link to your next favorite album.</p></div>
           <ol className="workflow-steps">
-            <li><div className="step-top"><span className="step-number">01</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>Make yourself at home.</h3><p>Install Audora. Let the setup wizard guide you through Docker, the required components, and your Apple Music sign-in.</p><CtaLink href={GUIDE_URL} trackingId="setup-workflow" intent="setup" className="text-link">Read the setup guide <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></li>
-            <li><div className="step-top"><span className="step-number">02</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>A link is all it takes.</h3><p>Copy a track, album, or playlist link from Apple Music. Paste it into Audora and start your lossless download.</p><span className="step-detail">Track · Album · Playlist</span></li>
-            <li><div className="step-top"><span className="step-number">03</span><span className="step-line" /><Check size={18} aria-hidden="true" /></div><h3>Press play. Settle in.</h3><p>Each track is ready as soon as its FLAC conversion finishes. Open your library, choose an album, and let it play.</p><span className="step-detail">Saved locally. Ready to listen.</span></li>
+            <li><div className="step-top"><span className="step-number">Set up</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>Make yourself at home.</h3><p>Install Audora. Let the setup wizard guide you through Docker, the required components, and your Apple Music sign-in.</p><CtaLink href={GUIDE_URL} trackingId="setup-workflow" intent="setup" className="text-link">Read the setup guide <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></li>
+            <li><div className="step-top"><span className="step-number">Paste</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>A link is all it takes.</h3><p>Copy a track, album, or playlist link from Apple Music. Paste it into Audora and start your lossless download.</p><span className="step-detail">Track / Album / Playlist</span></li>
+            <li><div className="step-top"><span className="step-number">Listen</span><span className="step-line" /><Check size={18} aria-hidden="true" /></div><h3>Press play. Settle in.</h3><p>Each track is ready as soon as its FLAC conversion finishes. Open your library, choose an album, and let it play.</p><span className="step-detail">Saved locally. Ready to listen.</span></li>
           </ol>
         </div>
       </section>
@@ -104,9 +106,12 @@ export default function Home() {
             <article className="download-option"><div className="os-label"><Terminal className="linux-symbol" size={24} aria-hidden="true" /><span>Linux</span><span className="os-arch">x64</span></div><p>Ubuntu, Debian & other distributions</p><div className="linux-buttons"><CtaLink href={RELEASES_URL} trackingId="download-linux-deb" intent="download" platform="linux-deb" className="button button-outline"><ArrowDownToLine size={16} aria-hidden="true" />.deb <span>Ubuntu / Debian</span></CtaLink><CtaLink href={RELEASES_URL} trackingId="download-linux-appimage" intent="download" platform="linux-appimage" className="button button-outline"><ArrowDownToLine size={16} aria-hidden="true" />AppImage <span>Other distros</span></CtaLink></div><span className="package-name">Choose your package on GitHub Releases</span></article>
           </div>
           <div className="requirements"><span className="requirements-title">Before you press play</span><p>An active Apple Music subscription, an internet connection, and Docker are required for setup and downloads. Use Docker Desktop on Windows or Docker Engine on Linux.</p><CtaLink href={GUIDE_URL} trackingId="setup-downloads" intent="setup" className="text-link">Setup guide <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></div>
-          <div className="release-footer"><span>Current release: v{RELEASE_VERSION} · Free to download</span><CtaLink href={RELEASES_URL} trackingId="github-release-notes" intent="github" className="text-link">Release notes <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></div>
+          <div className="release-footer"><span>Windows x64 and Linux x64 / Free to download</span><CtaLink href={RELEASES_URL} trackingId="github-release-notes" intent="github" className="text-link">Release notes <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></div>
         </div>
       </section>
+
+      <CommunityProof />
+      <FeedbackForm />
 
       <section id="faq" className="faq section container" aria-labelledby="faq-title">
         <div className="faq-intro"><h2 id="faq-title">A few things<br />to know.</h2><p>Good listening starts with<br className="desktop-break" /> knowing what to expect.</p><CtaLink href={GITHUB_URL} trackingId="github-faq" intent="github" className="text-link">View on GitHub <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></div>
@@ -116,6 +121,6 @@ export default function Home() {
       <section className="final-cta container" aria-labelledby="final-title"><div className="final-brand" aria-hidden="true"><Image src="/images/audora-icon.png" width={74} height={74} alt="" /></div><h2 id="final-title">Good music.<br /><span>Closer than ever.</span></h2><DownloadLink location="final" /><p>For Windows & Linux. Made for listening.</p></section>
     </main>
 
-    <footer className="site-footer container"><div className="footer-main"><a href="#" className="brand-link" aria-label="Back to Audora home"><Wordmark /></a><span>A home for your music.</span><nav aria-label="Footer navigation"><a href={GITHUB_URL}>GitHub <ArrowUpRight size={12} aria-hidden="true" /></a><a href={`${GITHUB_URL}/blob/main/LICENSE`}>License</a><a href={GUIDE_URL}>Setup guide</a></nav></div><div className="footer-bottom"><span>© {new Date().getFullYear()} Audora · Made by Utkarsh Wadalkar</span><p>Independent software. Not affiliated with Apple Inc. Apple Music is a trademark of Apple Inc.</p></div></footer>
+    <footer className="site-footer container"><div className="footer-main"><a href="#" className="brand-link" aria-label="Back to Audora home"><Wordmark /></a><span>A home for your music.</span><nav aria-label="Footer navigation"><a href={GITHUB_URL}>GitHub <ArrowUpRight size={12} aria-hidden="true" /></a><a href={`${GITHUB_URL}/blob/main/LICENSE`}>License</a><a href={GUIDE_URL}>Setup guide</a></nav></div><div className="footer-bottom"><span>© {new Date().getFullYear()} Audora / Made by Utkarsh Wadalkar</span><p>Independent software. Not affiliated with Apple Inc. Apple Music is a trademark of Apple Inc.</p></div></footer>
   </>;
 }

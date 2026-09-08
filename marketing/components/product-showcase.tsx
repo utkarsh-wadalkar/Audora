@@ -168,7 +168,7 @@ export function ProductShowcase() {
       <ol className="song-list" ref={shelf}>
         {SONGS.map((song, index) => <li key={song.id}>
           <button type="button" className="song-card" aria-pressed={index === selectedIndex}
-            title={`${song.title} — ${song.artist}`} onClick={() => selectSong(index)}>
+            title={`${song.title} - ${song.artist}`} onClick={() => selectSong(index)}>
             <span className="song-object">
               <span className="song-vinyl" aria-hidden="true"><span /></span>
               <Image src={song.coverSrc} alt="" width={260} height={260}

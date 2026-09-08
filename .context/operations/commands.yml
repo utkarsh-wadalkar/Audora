@@ -32,6 +32,26 @@ canonical_commands:
     command: npm run build
     purpose: Type-check and create the Vite renderer production bundle.
     expected_result: Vite creates the renderer production bundle.
+  marketing_typecheck:
+    cwd: marketing
+    command: npm run typecheck
+    purpose: Type-check the standalone Next.js marketing website.
+    expected_result: TypeScript exits successfully with no type errors.
+  marketing_lint:
+    cwd: marketing
+    command: npm run lint
+    purpose: Lint marketing components, public-data boundary, and browser tests.
+    expected_result: ESLint exits successfully with no errors.
+  marketing_build:
+    cwd: marketing
+    command: npm run build
+    purpose: Produce the static Next.js export consumed by Vercel.
+    expected_result: Next.js exports the landing page successfully.
+  marketing_e2e:
+    cwd: marketing
+    command: npm run test:e2e
+    purpose: Verify desktop/mobile funnel, progressive enhancement, live-evidence states, and feedback UX.
+    expected_result: All Playwright scenarios pass.
   freeze_backend_windows:
     cwd: backend
     command: python -m PyInstaller --noconfirm --clean backend.spec

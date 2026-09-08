@@ -19,6 +19,7 @@
     "renderer": ["React 18", "TypeScript", "Vite 7", "Zustand", "Axios"],
     "desktop": ["Electron 40", "electron-builder 26"],
     "backend": ["Python", "FastAPI", "Uvicorn", "SQLAlchemy", "Docker SDK"],
+    "marketing": ["Next.js 16 static export", "React 19", "Supabase", "Vercel Web Analytics"],
     "packaging": ["PyInstaller", "GitHub Actions"]
   },
   "entrypoints": {
@@ -26,7 +27,10 @@
     "electron": "frontend/electron/main.js",
     "backend": "backend/app.py",
     "backendPackageSpec": "backend/backend.spec",
-    "releaseWorkflow": ".github/workflows/release.yml"
+    "releaseWorkflow": ".github/workflows/release.yml",
+    "marketingPage": "marketing/app/page.tsx",
+    "marketingEvidenceClient": "marketing/lib/public-data.ts",
+    "marketingSchema": "supabase/migrations/20260908081119_audora_web_evidence.sql"
   },
   "desktopSupport": {
     "targets": ["Windows x64", "Linux x64"],
@@ -40,7 +44,8 @@
     ".context/README.md",
     ".context/inventory/modules.json",
     ".context/architecture/runtime-and-api.md",
-    ".context/operations/release-contract.md"
+    ".context/operations/release-contract.md",
+    ".context/architecture/marketing-evidence.md"
   ],
   "safety": {
     "neverCommit": [

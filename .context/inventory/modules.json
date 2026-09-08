@@ -41,6 +41,14 @@
     ".github/workflows/release.yml": "Tag-driven native Windows/Linux build, test, package, smoke-test, artifact, checksum, and GitHub Release workflow.",
     "docs/superpowers": "Design rationale and implementation plan for the current desktop-release work."
   },
+  "marketing": {
+    "marketing/app/page.tsx": "Static landing-page composition, navigation, product proof, FAQ, evidence, and feedback sections.",
+    "marketing/components/community-proof.tsx": "Client leaf for anonymous visit recording, release-download totals, public metrics, and moderated review display.",
+    "marketing/components/feedback-form.tsx": "Accessible rating and feedback form; persists a private moderation record and forwards a notification email.",
+    "marketing/lib/public-data.ts": "Typed browser API boundary for Supabase RPC calls and GitHub release-asset download totals.",
+    "supabase/migrations/20260908081119_audora_web_evidence.sql": "RLS-protected anonymous visitor metrics, private feedback, aggregate evidence, and review-publication contract.",
+    "marketing/tests/funnel.spec.ts": "Desktop/mobile funnel, progressive enhancement, evidence, review, and feedback-form browser coverage."
+  },
   "testAreas": {
     "backend/tests": [
       "auth, Docker discovery/manager/platform behavior, downloader command/stages/config, FLAC conversion",

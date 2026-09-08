@@ -75,11 +75,53 @@ test('conversion hook reports intent without intercepting a real link', async ({
   expect(JSON.parse(detail!)).toEqual({ id: 'download-windows', intent: 'download', platform: 'windows', href: releases });
 });
 
+test('live evidence, moderated reviews and feedback states work', async ({ page }) => {
+  await page.route('**/rest/v1/rpc/record_site_visit', route => route.fulfill({ status: 204 }));
+  await page.route('**/rest/v1/rpc/get_public_evidence', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ activeVisitors30d: 19, visitorsTotal: 31, publishedReviews: 1 }),
+  }));
+  await page.route('**/rest/v1/rpc/get_public_reviews', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify([{
+      id: 1, name: 'Test Listener', role: 'Audio enthusiast', rating: 5,
+      message: 'Audora keeps the download flow clear and makes my local lossless library easy to enjoy.', published_at: '2026-09-08T00:00:00Z',
+    }]),
+  }));
+  await page.route('https://api.github.com/repos/utkarsh-wadalkar/Audora/releases?per_page=100', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify([{ draft: false, assets: [{ download_count: 42 }] }]),
+  }));
+
+  let savedFeedback: Record<string, unknown> | undefined;
+  await page.route('**/rest/v1/rpc/submit_feedback', async route => {
+    savedFeedback = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 204 });
+  });
+  await page.route('https://formsubmit.co/ajax/**', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ success: true }),
+  }));
+
+  await page.goto('/');
+  await page.locator('#community').scrollIntoViewIfNeeded();
+  await expect(page.getByText('19', { exact: true })).toBeVisible();
+  await expect(page.getByText('42', { exact: true })).toBeVisible();
+  await expect(page.getByText('Test Listener')).toBeVisible();
+  await expect(page.getByLabel('5 out of 5 stars')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Audora Tester');
+  await page.getByRole('textbox', { name: 'Email optional', exact: true }).fill('listener@example.com');
+  await page.getByRole('textbox', { name: 'Role or company optional', exact: true }).fill('Independent listener');
+  await page.getByRole('button', { name: '5 stars' }).click();
+  await page.getByLabel('Your feedback').fill('The Windows and Linux download choices are clear, and the player feels focused.');
+  await page.getByLabel('You may publish my name, role, rating, and review on this website.').check();
+  await page.getByRole('button', { name: 'Send feedback' }).click();
+  await expect(page.getByText('Thank you. Your feedback has been delivered.')).toBeVisible();
+  expect(savedFeedback).toMatchObject({ p_name: 'Audora Tester', p_rating: 5, p_consent_to_publish: true });
+});
+
 test('static content, downloads and FAQ work without JavaScript', async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Your music. All the detail.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Music worth keeping.' })).toBeVisible();
   await expect(page.locator('#download-hero')).toHaveAttribute('href', releases);
   await page.locator('.turntable-stage').scrollIntoViewIfNeeded();
   await expect(page.locator('.turntable-poster')).toBeVisible();
@@ -152,7 +194,7 @@ test('3D loads near the viewport and draws only during interaction or visible an
   expect(audioRequests).toEqual([]);
   await page.getByRole('button', { name: 'Start record' }).click();
   await expect.poll(count).not.toBe(still);
-  await page.locator('footer').scrollIntoViewIfNeeded();
+  await page.locator('footer').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
   await page.waitForTimeout(250);
   const hidden = await count();
   await page.waitForTimeout(200);

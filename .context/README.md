@@ -14,7 +14,7 @@ and the current release work without exposing runtime data or credentials.
 | Tests, builds, packages, CI, or releases | `operations/commands.yml` and `operations/release-contract.md` |
 | Windows/Linux behavior | `architecture/platform-policy.md` |
 | Existing release implementation decisions | `docs/superpowers/specs/2026-08-29-windows-linux-desktop-release-design.md` |
-| Marketing website, music showcase, screenshots, or Vercel deployment | `../marketing/README.md`, `../marketing/ASSETS.md`, and `../marketing/lib/songs.generated.ts` |
+| Marketing website, evidence, reviews, feedback, screenshots, or Vercel deployment | `architecture/marketing-evidence.md`, then `../marketing/README.md` |
 
 ## Product profile and maintenance contract
 
@@ -51,6 +51,7 @@ frontend/src/            React/Vite renderer
 frontend/electron/       Electron main process, platform policy, smoke helper
 frontend/assets/         Packaged application assets
 marketing/               Standalone Next.js static marketing site (Vercel root)
+supabase/migrations/     Versioned website evidence and feedback schema
 .github/workflows/       Native Windows/Linux release automation
 docs/superpowers/        Release design and implementation plan
 .context/                This agent-oriented, low-token knowledge base
@@ -69,3 +70,5 @@ docs/superpowers/        Release design and implementation plan
 5. Keep sensitive values out of source, logs, tests, and this directory.
 6. Backend tests run on both native OSes. Use native temporary paths for
    filesystem assertions and inject a runtime when testing OS-specific behavior.
+7. Public website claims come from live Supabase aggregates or GitHub release
+   data. Never add invented users, downloads, or testimonials.

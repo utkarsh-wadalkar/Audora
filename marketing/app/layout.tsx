@@ -10,17 +10,17 @@ const caveat = localFont({ src: './fonts/caveat-700.woff2', variable: '--font-ca
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: 'Audora — Your music. All the detail.',
+  title: 'Audora: Download Music worth keeping.',
   description,
   applicationName: 'Audora',
   alternates: { canonical: '/' },
   icons: { icon: [{ url: '/favicon.png', sizes: '64x64', type: 'image/png' }], apple: '/apple-touch-icon.png' },
   openGraph: {
     type: 'website', locale: 'en_US', url: '/', siteName: 'Audora',
-    title: 'Your music. All the detail.', description,
+    title: 'Audora: Music worth keeping.', description,
     images: [{ url: '/social-preview.png', width: 1200, height: 630, alt: 'Audora: lossless FLAC and local listening for Windows and Linux.' }],
   },
-  twitter: { card: 'summary_large_image', title: 'Audora — Your music. All the detail.', description, images: ['/social-preview.png'] },
+  twitter: { card: 'summary_large_image', title: 'Audora: Download Music worth keeping.', description, images: ['/social-preview.png'] },
   robots: { index: true, follow: true },
 };
 

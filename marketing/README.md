@@ -3,7 +3,8 @@
 A standalone Next.js App Router site that exports static HTML to `out/`.
 There is no app server, API route, account system, or dependency on the
 Electron/Python app at runtime. Vercel Web Analytics records page visits through
-the official `@vercel/analytics` package. The desktop application is unchanged.
+the official `@vercel/analytics` package. Supabase stores anonymous aggregate
+activity and the private feedback inbox. The desktop application is unchanged.
 
 ## Local use
 
@@ -67,13 +68,24 @@ runtime step downloads them from a separate service or local source folder.
 
 The prepared project is `audora-music` under
 `utkarshs-projects-d8755b84`, project ID `prj_hfyuslBaWyQlL9ilMmyCQd3C5Guq`.
-Deploy the `codex/audora-marketing-music-showcase` branch through the connected
-Git repository. Direct source upload is intentionally not used for this asset set.
+Production deploys the `main` branch through the connected Git repository.
+Direct source upload is intentionally not used for this asset set.
 
 `SITE_URL` is optional on Vercel. Set it to your canonical HTTPS origin when you
 assign a custom domain. Otherwise metadata uses Vercel's production/project URL,
 then the deployment URL. Local builds default to `http://localhost:3000`.
 Canonical, Open Graph, structured data, and sitemap all use the same origin.
+
+The live evidence and feedback components require these Production variables:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+Both are browser-safe project identifiers. Never add a Supabase secret key to a
+`NEXT_PUBLIC_` variable. The database contract is versioned in
+`../supabase/migrations/20260908081119_audora_web_evidence.sql`.
 
 ## Conversion readiness
 
@@ -92,8 +104,23 @@ window.addEventListener('audora:cta', ({ detail }) => {
 ```
 
 Every important CTA also exposes `id`, `data-cta`, `data-intent`, and where
-applicable `data-platform`. This records outbound intent, not a completed binary
-download. No visitor data is collected by the site itself.
+applicable `data-platform`. GitHub's release API is the source of completed asset
+download counts. Audora stores a random browser identifier and timestamps only;
+it does not store an IP address or profile with the activity record.
+
+## Feedback and review moderation
+
+Feedback is written to the private `feedback_submissions` table and sent to
+`utkarshwadalkarg6genai@gmail.com`. A submission cannot appear publicly unless
+the listener checked the publication-consent box and its status is changed from
+`pending` to `published`.
+
+To publish or reject a review, open Supabase Studio, select **Table Editor**,
+open `feedback_submissions`, and change `status`. Setting it to `published`
+automatically adds the publication timestamp and updates the public count. To
+add a review manually, add a row with the real listener's permission, their
+name, rating, message, consent enabled, and status `published`. Never publish
+the private `email` or `submission_token` columns.
 
 ## Design and maintenance
 
