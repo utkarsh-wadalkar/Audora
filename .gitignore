@@ -164,3 +164,4 @@ wrapper/*.xz
 .codex/
 .vercel
 .env*
+supabase/.temp/
