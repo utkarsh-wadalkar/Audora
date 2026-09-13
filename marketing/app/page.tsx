@@ -84,7 +84,7 @@ export default function Home() {
 
       <section id="how-it-works" className="workflow section" aria-labelledby="workflow-title">
         <div className="container">
-          <div className="workflow-intro"><span className="eyebrow">LESS BETWEEN YOU AND THE MUSIC</span><h2 id="workflow-title">From found it.<br />To on repeat.</h2><p>A simple flow, from your first link to your next favorite album.</p></div>
+          <div className="workflow-intro"><span className="eyebrow">LESS BETWEEN YOU AND THE MUSIC</span><h2 id="workflow-title">From found it<br />To repeat it.</h2><p>A simple flow, from your first link to your next favorite album.</p></div>
           <ol className="workflow-steps">
             <li><div className="step-top"><span className="step-number">Set up</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>Make yourself at home.</h3><p>Install Audora. Let the setup wizard guide you through Docker, the required components, and your Apple Music sign-in.</p><CtaLink href={GUIDE_URL} trackingId="setup-workflow" intent="setup" className="text-link">Read the setup guide <ArrowUpRight size={14} aria-hidden="true" /></CtaLink></li>
             <li><div className="step-top"><span className="step-number">Paste</span><span className="step-line" /><ArrowRight size={18} aria-hidden="true" /></div><h3>A link is all it takes.</h3><p>Copy a track, album, or playlist link from Apple Music. Paste it into Audora and start your lossless download.</p><span className="step-detail">Track / Album / Playlist</span></li>
