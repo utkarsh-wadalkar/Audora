@@ -76,9 +76,9 @@ test('conversion hook reports intent without intercepting a real link', async ({
 });
 
 test('live evidence, moderated reviews and feedback states work', async ({ page }) => {
-  await page.route('**/rest/v1/rpc/record_site_visit', route => route.fulfill({ status: 204 }));
-  await page.route('**/rest/v1/rpc/get_public_evidence', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({
+  await page.route('**/api/visits', route => route.fulfill({ contentType: 'application/json', body: '{"ok":true}' }));
+  await page.route('**/api/evidence', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ evidence: {
       thisMonth: 19,
       lastMonth: 12,
       visitorsTotal: 31,
@@ -87,22 +87,19 @@ test('live evidence, moderated reviews and feedback states work', async ({ page 
         { date: '2026-08-26', count: 1 }, { date: '2026-08-27', count: 2 },
         { date: '2026-08-28', count: 0 }, { date: '2026-08-29', count: 3 },
       ],
-    }),
-  }));
-  await page.route('**/rest/v1/rpc/get_public_reviews', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify([{
+    }, reviews: [{
       id: 1, name: 'Test Listener', role: 'Audio enthusiast', rating: 5,
       message: 'Audora keeps the download flow clear and makes my local lossless library easy to enjoy.', published_at: '2026-09-08T00:00:00Z',
-    }]),
+    }] }),
   }));
   await page.route('https://api.github.com/repos/utkarsh-wadalkar/Audora/releases?per_page=100', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify([{ draft: false, assets: [{ download_count: 42 }] }]),
   }));
 
   let savedFeedback: Record<string, unknown> | undefined;
-  await page.route('**/rest/v1/rpc/submit_feedback', async route => {
+  await page.route('**/api/feedback', async route => {
     savedFeedback = route.request().postDataJSON() as Record<string, unknown>;
-    await route.fulfill({ status: 204 });
+    await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
   });
   await page.route('https://formsubmit.co/ajax/**', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ success: true }),
@@ -127,7 +124,19 @@ test('live evidence, moderated reviews and feedback states work', async ({ page 
   await page.getByLabel('You may publish my name, role, rating, and review on this website.').check();
   await page.getByRole('button', { name: 'Send feedback' }).click();
   await expect(page.getByText('Thank you. Your feedback has been delivered.')).toBeVisible();
-  expect(savedFeedback).toMatchObject({ p_name: 'Audora Tester', p_rating: 5, p_consent_to_publish: true });
+  expect(savedFeedback).toMatchObject({ name: 'Audora Tester', rating: 5, consentToPublish: true });
+});
+
+test('feedback API rejects non-string messages before database access', async ({ request }) => {
+  const response = await request.post('/api/feedback', {
+    data: {
+      submissionToken: '0ff8e896-c8d8-4e66-b22c-450288f75c70',
+      name: 'Audora Tester', email: '', role: '', rating: 5,
+      message: { text: "'); DROP TABLE feedback_submissions; --" },
+      consentToPublish: false, company: '',
+    },
+  });
+  expect(response.status()).toBe(400);
 });
 
 test('static content, downloads and FAQ work without JavaScript', async ({ browser }) => {

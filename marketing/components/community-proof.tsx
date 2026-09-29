@@ -80,17 +80,17 @@ export function CommunityProof() {
     async function refresh() {
       try {
         await recordVisit(visitorId()).catch(() => undefined);
-        const [supabaseResult, githubResult] = await Promise.allSettled([
+        const [evidenceResult, githubResult] = await Promise.allSettled([
           loadEvidence(),
           loadGithubDownloadCount(),
         ]);
         if (!cancelled) {
-          if (supabaseResult.status === 'fulfilled') {
-            setEvidence(supabaseResult.value.evidence);
-            setReviews(supabaseResult.value.reviews);
+          if (evidenceResult.status === 'fulfilled') {
+            setEvidence(evidenceResult.value.evidence);
+            setReviews(evidenceResult.value.reviews);
           }
           if (githubResult.status === 'fulfilled') setDownloads(githubResult.value);
-          setStatus(supabaseResult.status === 'fulfilled' ? 'ready' : 'error');
+          setStatus(evidenceResult.status === 'fulfilled' ? 'ready' : 'error');
         }
       } catch {
         if (!cancelled) setStatus('error');

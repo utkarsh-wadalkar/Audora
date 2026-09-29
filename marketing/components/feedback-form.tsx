@@ -30,7 +30,8 @@ export function FeedbackForm() {
     const consentToPublish = data.get('consent') === 'on';
 
     try {
-      await submitFeedback({ submissionToken: submissionToken.current, name, email, role, rating, message, consentToPublish });
+      await submitFeedback({ submissionToken: submissionToken.current, name, email, role, rating, message, consentToPublish,
+        company: String(data.get('company') || '') });
 
       const emailPayload = new FormData();
       emailPayload.set('name', name);
@@ -46,7 +47,10 @@ export function FeedbackForm() {
       const emailResponse = await fetch(`https://formsubmit.co/ajax/${feedbackEmail}`, {
         method: 'POST', headers: { Accept: 'application/json' }, body: emailPayload,
       });
-      if (!emailResponse.ok) throw new Error('Email delivery failed.');
+      const emailResult = await emailResponse.json() as { success?: boolean | string };
+      if (!emailResponse.ok || emailResult.success === false || emailResult.success === 'false') {
+        throw new Error('Email delivery failed.');
+      }
 
       form.reset();
       setRating(0);

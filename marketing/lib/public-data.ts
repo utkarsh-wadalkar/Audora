@@ -1,7 +1,4 @@
-export type DailyVisitor = {
-  date: string;
-  count: number;
-};
+export type DailyVisitor = { date: string; count: number };
 
 export type PublicEvidence = {
   thisMonth: number;
@@ -20,39 +17,22 @@ export type PublicReview = {
   published_at: string | null;
 };
 
-type SupabaseConfig = { url: string; key: string };
-
-function getSupabaseConfig(): SupabaseConfig | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  return url && key ? { url, key } : null;
-}
-
-async function callRpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
-  const config = getSupabaseConfig();
-  if (!config) throw new Error('Public data is not configured.');
-
-  const response = await fetch(`${config.url}/rest/v1/rpc/${name}`, {
+async function callApi<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(path, body ? {
     method: 'POST',
-    headers: { apikey: config.key, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
-
+  } : { cache: 'no-store' });
   if (!response.ok) throw new Error(`Public data request failed (${response.status}).`);
-  const payload = await response.text();
-  return (payload ? JSON.parse(payload) : undefined) as T;
+  return response.json() as Promise<T>;
 }
 
 export async function recordVisit(visitorId: string) {
-  await callRpc<void>('record_site_visit', { p_visitor_id: visitorId });
+  await callApi<{ ok: true }>('/api/visits', { visitorId });
 }
 
-export async function loadEvidence() {
-  const [evidence, reviews] = await Promise.all([
-    callRpc<PublicEvidence>('get_public_evidence', {}),
-    callRpc<PublicReview[]>('get_public_reviews', { p_limit: 6 }),
-  ]);
-  return { evidence, reviews };
+export function loadEvidence() {
+  return callApi<{ evidence: PublicEvidence; reviews: PublicReview[] }>('/api/evidence');
 }
 
 export async function submitFeedback(input: {
@@ -63,16 +43,9 @@ export async function submitFeedback(input: {
   rating: number;
   message: string;
   consentToPublish: boolean;
+  company: string;
 }) {
-  await callRpc<void>('submit_feedback', {
-    p_submission_token: input.submissionToken,
-    p_name: input.name,
-    p_email: input.email,
-    p_role: input.role,
-    p_rating: input.rating,
-    p_message: input.message,
-    p_consent_to_publish: input.consentToPublish,
-  });
+  await callApi<{ ok: true }>('/api/feedback', input);
 }
 
 export async function loadGithubDownloadCount(): Promise<number> {

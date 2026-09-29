@@ -8,12 +8,13 @@
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "test:e2e": "playwright test",
-    "preview": "node scripts/serve.mjs",
+    "preview": "next start --port 3000",
     "capture": "node scripts/capture-product.mjs",
     "prepare:music": "node scripts/prepare-music.mjs"
   },
   "dependencies": {
     "@react-three/fiber": "^9.7.0",
+    "@tidbcloud/serverless": "^0.3.0",
     "@vercel/analytics": "^2.0.1",
     "lucide-react": "^0.577.0",
     "next": "16.3.4",
