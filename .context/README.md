@@ -50,8 +50,8 @@ backend/tests/           Python unit and endpoint tests
 frontend/src/            React/Vite renderer
 frontend/electron/       Electron main process, platform policy, smoke helper
 frontend/assets/         Packaged application assets
-marketing/               Standalone Next.js static marketing site (Vercel root)
-supabase/migrations/     Versioned website evidence and feedback schema
+marketing/               Standalone Next.js marketing site (Vercel root)
+marketing/tidb/          TiDB schema and consented-review publish query
 .github/workflows/       Native Windows/Linux release automation
 docs/superpowers/        Release design and implementation plan
 .context/                This agent-oriented, low-token knowledge base
@@ -70,5 +70,5 @@ docs/superpowers/        Release design and implementation plan
 5. Keep sensitive values out of source, logs, tests, and this directory.
 6. Backend tests run on both native OSes. Use native temporary paths for
    filesystem assertions and inject a runtime when testing OS-specific behavior.
-7. Public website claims come from live Supabase aggregates or GitHub release
+7. Public website claims come from live TiDB aggregates or GitHub release
    data. Never add invented users, downloads, or testimonials.

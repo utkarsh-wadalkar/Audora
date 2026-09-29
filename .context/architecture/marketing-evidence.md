@@ -8,7 +8,7 @@ marketing runtime remain independent.
 
 - Vercel Web Analytics records privacy-focused page traffic for the private
   owner dashboard.
-- Supabase project `Audora Web` stores one random browser identifier with first
+- TiDB Cloud project `Audora-Web` stores one random browser identifier with first
   and last-seen timestamps. The public proof panel reads aggregate first-visit
   counts for this month, last month, lifetime, and the latest 14 calendar days.
   It never exposes a browser identifier or converts website clicks into
@@ -19,34 +19,26 @@ marketing runtime remain independent.
 
 ## Data boundary
 
-`supabase/migrations/20260908081119_audora_web_evidence.sql` owns three tables:
+`marketing/tidb/schema.sql` owns two TiDB tables:
 
 - `site_visitors`: anonymous identifiers and timestamps; no name, email, or IP;
-- `site_metrics`: the single public aggregate row;
 - `feedback_submissions`: private email, rating, message, consent, and moderation
   status.
 
-RLS is enabled on every table. Browser calls use only the Supabase publishable
-key and read the single aggregate row. A non-callable trigger function in the
-unexposed `private` schema refreshes its counts and 14-day series whenever
-visitor or feedback data changes. No Supabase secret key is present in source
-or the browser.
+The TiDB URL is server-only. Browser code calls Next.js route handlers, which
+use parameterized TiDB queries and never expose database credentials.
 
 ## Review workflow
 
-Feedback begins as `pending`. In Supabase Studio, change `status` to `published`
-only when `consent_to_publish` is true. The publication timestamp and public
-review count update automatically. Use `rejected` to keep a submission private
-without deleting it. A real review can also be added through Table Editor with
-the listener's permission; the same consent and publication rules apply.
+Feedback begins as `pending`. Run `marketing/tidb/review-consented.sql` in TiDB
+Cloud SQL Editor to review the consented queue. Publish only selected IDs with
+the explicit `UPDATE` shown in that file; the frontend displays those rows on
+its next evidence refresh. Leave unselected rows pending or mark them rejected.
 
 ## Runtime configuration
 
-Vercel Production defines `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. These are intentionally browser-safe.
-Never add `sb_secret_*`, a service-role key, a database password, or private
-feedback to this context directory.
+Vercel Production defines the server-only `TIDB_DATABASE_URL`. Never add a
+database password or private feedback to this context directory.
 
-The feedback form stores the submission in Supabase and sends it to
-`utkarshwadalkarg6genai@gmail.com` through FormSubmit. FormSubmit's one-time
-mailbox activation remains associated with that address.
+The feedback form stores submissions only in TiDB. It does not send feedback by
+email.

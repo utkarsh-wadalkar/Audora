@@ -44,9 +44,10 @@
   "marketing": {
     "marketing/app/page.tsx": "Static landing-page composition, navigation, product proof, FAQ, evidence, and feedback sections.",
     "marketing/components/community-proof.tsx": "Client leaf for anonymous visit recording, release-download totals, public metrics, and moderated review display.",
-    "marketing/components/feedback-form.tsx": "Accessible rating and feedback form; persists a private moderation record and forwards a notification email.",
-    "marketing/lib/public-data.ts": "Typed browser API boundary for Supabase RPC calls and GitHub release-asset download totals.",
-    "supabase/migrations/20260908081119_audora_web_evidence.sql": "RLS-protected anonymous visitor metrics, private feedback, aggregate evidence, and review-publication contract.",
+    "marketing/components/feedback-form.tsx": "Accessible rating and feedback form; persists a private TiDB moderation record without email forwarding.",
+    "marketing/lib/public-data.ts": "Typed browser API boundary for TiDB-backed Next.js routes and GitHub release-asset download totals.",
+    "marketing/tidb/schema.sql": "TiDB schema for anonymous visitor metrics and private feedback.",
+    "marketing/tidb/review-consented.sql": "Read-only operator queue for reviewing consented feedback, with an explicit ID-based publish query.",
     "marketing/tests/funnel.spec.ts": "Desktop/mobile funnel, progressive enhancement, evidence, review, and feedback-form browser coverage."
   },
   "testAreas": {

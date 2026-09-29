@@ -4,8 +4,6 @@ import { FormEvent, useRef, useState } from 'react';
 import { Send, Star } from 'lucide-react';
 import { submitFeedback } from '../lib/public-data';
 
-const feedbackEmail = 'utkarshwadalkarg6genai@gmail.com';
-
 export function FeedbackForm() {
   const [rating, setRating] = useState(0);
   const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
@@ -33,25 +31,6 @@ export function FeedbackForm() {
       await submitFeedback({ submissionToken: submissionToken.current, name, email, role, rating, message, consentToPublish,
         company: String(data.get('company') || '') });
 
-      const emailPayload = new FormData();
-      emailPayload.set('name', name);
-      emailPayload.set('email', email || 'Not provided');
-      emailPayload.set('role', role || 'Not provided');
-      emailPayload.set('rating', `${rating} / 5`);
-      emailPayload.set('feedback', message);
-      emailPayload.set('publication consent', consentToPublish ? 'Yes' : 'No');
-      emailPayload.set('_subject', `New Audora feedback: ${rating} stars`);
-      emailPayload.set('_template', 'table');
-      emailPayload.set('_captcha', 'false');
-
-      const emailResponse = await fetch(`https://formsubmit.co/ajax/${feedbackEmail}`, {
-        method: 'POST', headers: { Accept: 'application/json' }, body: emailPayload,
-      });
-      const emailResult = await emailResponse.json() as { success?: boolean | string };
-      if (!emailResponse.ok || emailResult.success === false || emailResult.success === 'false') {
-        throw new Error('Email delivery failed.');
-      }
-
       form.reset();
       setRating(0);
       submissionToken.current = null;
@@ -64,7 +43,7 @@ export function FeedbackForm() {
   return <section id="feedback" className="feedback section container" aria-labelledby="feedback-title">
     <div className="feedback-intro">
       <h2 id="feedback-title">Tell me how<br /><span>Audora feels.</span></h2>
-      <p>Your note goes directly to the maker. Reviews appear publicly only when you opt in and after they are checked.</p>
+      <p>Your note is stored securely. Reviews appear publicly only when you opt in and after you publish them from TiDB.</p>
       <div className="feedback-note"><Star size={17} aria-hidden="true" /><span>Honest feedback shapes the next release.</span></div>
     </div>
 
@@ -92,7 +71,7 @@ export function FeedbackForm() {
           <Send size={16} aria-hidden="true" />{status === 'sending' ? 'Sending feedback' : 'Send feedback'}
         </button>
         <p className={`form-status ${status}`} aria-live="polite">
-          {status === 'success' && 'Thank you. Your feedback has been delivered.'}
+          {status === 'success' && 'Thank you. Your feedback has been saved.'}
           {status === 'error' && rating > 0 && 'Something went wrong. Please try again.'}
         </p>
       </div>

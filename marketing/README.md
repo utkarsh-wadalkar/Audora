@@ -1,10 +1,8 @@
 # Audora marketing
 
-A standalone Next.js App Router site that exports static HTML to `out/`.
-There is no app server, API route, account system, or dependency on the
-Electron/Python app at runtime. Vercel Web Analytics records page visits through
-the official `@vercel/analytics` package. Supabase stores anonymous aggregate
-activity and the private feedback inbox. The desktop application is unchanged.
+A standalone Next.js App Router site. Vercel Web Analytics records page visits
+through the official `@vercel/analytics` package. TiDB stores anonymous activity
+and the feedback inbox. The desktop application is unchanged.
 
 ## Local use
 
@@ -57,7 +55,7 @@ equivalent is:
 - Install Command: **`npm ci`**
 - Build Command: **`npm run build`**
 - Output Directory: **`.next`**, matching `vercel.json`. The Next.js adapter
-  reads its build manifests there and detects the static export in `out/`.
+  serves the static page and the TiDB-backed route handlers from this build.
 - Node.js: **22.x or later**
 
 Import the repository with those settings for Git deployments. The complete
@@ -76,16 +74,16 @@ assign a custom domain. Otherwise metadata uses Vercel's production/project URL,
 then the deployment URL. Local builds default to `http://localhost:3000`.
 Canonical, Open Graph, structured data, and sitemap all use the same origin.
 
-The live evidence and feedback components require these Production variables:
+The live evidence and feedback components require this server-only Production variable:
 
 ```text
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+TIDB_DATABASE_URL
 ```
 
-Both are browser-safe project identifiers. Never add a Supabase secret key to a
-`NEXT_PUBLIC_` variable. The database contract is versioned in
-`../supabase/migrations/20260908081119_audora_web_evidence.sql`.
+The TiDB URL is used only by Next.js route handlers. Never use a `NEXT_PUBLIC_`
+database variable or expose the password to browser code. The schema is in
+`tidb/schema.sql`; consented reviews can be reviewed with
+`tidb/review-consented.sql`.
 
 ## Conversion readiness
 
@@ -110,17 +108,16 @@ it does not store an IP address or profile with the activity record.
 
 ## Feedback and review moderation
 
-Feedback is written to the private `feedback_submissions` table and sent to
-`utkarshwadalkarg6genai@gmail.com`. A submission cannot appear publicly unless
-the listener checked the publication-consent box and its status is changed from
-`pending` to `published`.
+Feedback is written only to the private `feedback_submissions` table. A
+submission cannot appear publicly unless the listener checked the
+publication-consent box and you explicitly change its status from `pending` to
+`published`.
 
-To publish or reject a review, open Supabase Studio, select **Table Editor**,
-open `feedback_submissions`, and change `status`. Setting it to `published`
-automatically adds the publication timestamp and updates the public count. To
-add a review manually, add a row with the real listener's permission, their
-name, rating, message, consent enabled, and status `published`. Never publish
-the private `email` or `submission_token` columns.
+Run `marketing/tidb/review-consented.sql` in TiDB Cloud SQL Editor to see the
+consented pending queue. Review each row, then run the commented `UPDATE` with
+only the IDs you approve. The public evidence endpoint returns those selected
+rows on the next page refresh. Never publish the private `email` or
+`submission_token` columns.
 
 ## Design and maintenance
 

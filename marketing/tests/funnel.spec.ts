@@ -101,10 +101,6 @@ test('live evidence, moderated reviews and feedback states work', async ({ page 
     savedFeedback = route.request().postDataJSON() as Record<string, unknown>;
     await route.fulfill({ contentType: 'application/json', body: '{"ok":true}' });
   });
-  await page.route('https://formsubmit.co/ajax/**', route => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ success: true }),
-  }));
-
   await page.goto('/');
   await page.locator('#community').scrollIntoViewIfNeeded();
   await expect(page.getByText('19', { exact: true })).toBeVisible();
@@ -123,7 +119,7 @@ test('live evidence, moderated reviews and feedback states work', async ({ page 
   await page.getByLabel('Your feedback').fill('The Windows and Linux download choices are clear, and the player feels focused.');
   await page.getByLabel('You may publish my name, role, rating, and review on this website.').check();
   await page.getByRole('button', { name: 'Send feedback' }).click();
-  await expect(page.getByText('Thank you. Your feedback has been delivered.')).toBeVisible();
+  await expect(page.getByText('Thank you. Your feedback has been saved.')).toBeVisible();
   expect(savedFeedback).toMatchObject({ name: 'Audora Tester', rating: 5, consentToPublish: true });
 });
 
