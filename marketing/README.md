@@ -121,43 +121,22 @@ rows on the next page refresh. Never publish the private `email` or
 
 ## Design and maintenance
 
-Most of the page is rendered by Server Components during build. The music
-showcase and conversion link hooks are small isolated client components. Native
+Most of the page is rendered by Server Components during build. Conversion link
+hooks are small isolated client components. Native
 details/summary elements make FAQs work without JavaScript. Fonts and WebP assets
-are local. The hero screenshot is preloaded; below-fold artwork is lazy loaded.
-All images and the turntable stage have reserved dimensions.
+are local. The hero screenshot is preloaded. All images have reserved dimensions.
 
 Styling uses native CSS, Audora's charcoal/sand palette and Caveat wordmark,
 with Geist for text. The static FLAC illustration describes the file format;
 it is not a product mockup or measured audio waveform. CSS motion is short and
-disabled under reduced motion. The approved turntable is modeled with Three.js
-and React Three Fiber: graphite plinth, machined platter, record grooves, metal
-tonearm, and the selected song's cover on the center label. It loads near the
-viewport, renders on demand, stops drawing off screen, and falls back to a sharp
-static poster when WebGL is unavailable. Audio still works with that fallback.
+disabled under reduced motion. The listening section currently shows a placeholder
+while a rights-cleared lossless demo is prepared.
 
-## Some Songs I Like
+## Listening demo
 
-`lib/songs.generated.ts` is the single catalog for all 12 songs. Each item has an
-ID, title, artist, relative audio/artwork URLs, duration, and source codec. There
-is no album, artist, or folder grouping. The record shelf, selected title/cover,
-3D label, and audio player all consume the same selected item.
-
-The page owns exactly one HTML audio element with `preload="none"` and no initial
-source. Start record plays it; Pause record pauses it. Selecting a card or using
-Previous/Next replaces its source, retaining playback intent when it is already
-playing. Ended tracks advance to the next song. Browser playback events drive
-record animation. Reduced motion keeps audio available while the record stays
-still. The scene is memoized so time/progress updates do not redraw WebGL.
-
-The checked-in deployable structure is:
-
-```text
-public/music/<song-slug>/audio.flac  # Eight untouched FLAC copies
-public/music/<song-slug>/audio.mp3   # Four ALAC compatibility copies
-public/music/<song-slug>/cover.webp # Embedded artwork, 900 × 900
-lib/songs.generated.ts             # One catalog, public URLs only
-```
+The previous music files, covers, catalog, and turntable poster were removed from
+the deployable site. Requests to their former `/music/` and poster URLs should
+return 404 after deployment. The `#experience` section remains as a placeholder.
 
 To regenerate during development, supply a source folder explicitly:
 
@@ -166,11 +145,9 @@ npm run prepare:music -- "<source-folder>"
 ```
 
 This optional script uses `music-metadata`, `sharp`, and `ffmpeg-static` as
-development tools. It preserves existing browser-compatible audio, creates MP3
-VBR quality-2 copies only for unsupported ALAC, extracts real embedded artwork,
-sanitizes slugs, and writes the catalog. It never modifies source files. Neither
-`npm run build` nor the deployed application invokes it. No source-folder path
-is stored in the catalog or client code. See `ASSETS.md` for provenance.
+development tools. It is not invoked by the build or deployed application. Only
+run it with music and artwork cleared for public distribution. See `ASSETS.md`
+for current asset provenance.
 
 `ASSETS.md` documents screenshot provenance and capture regeneration. All product
 claims follow the README, source, and v2.0.0 release. The site deliberately uses

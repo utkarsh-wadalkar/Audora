@@ -3,7 +3,6 @@ import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUpRight, Check, Disc3, Git
 import { CtaLink } from '../components/cta-link';
 import { CommunityProof } from '../components/community-proof';
 import { FeedbackForm } from '../components/feedback-form';
-import { ProductShowcase } from '../components/product-showcase';
 import { GITHUB_URL, GUIDE_URL, RELEASES_URL, RELEASE_VERSION, SITE_URL, description } from '../lib/site';
 
 function Wordmark() {
@@ -78,8 +77,7 @@ export default function Home() {
       </section>
 
       <section id="experience" className="experience section container" aria-labelledby="experience-title">
-        <div className="section-intro"><h2 id="experience-title">Some Songs<br />I Like.</h2><p>Twelve records from a personal rotation, ready to play.<br className="desktop-break" /> Choose one, lower the needle, and stay awhile.</p></div>
-        <ProductShowcase />
+        <div className="section-intro"><h2 id="experience-title">The listening room<br />is being refreshed.</h2><p>We’re preparing a new collection of music we can share here. A free lossless listening demo is coming soon.</p></div>
       </section>
 
       <section id="how-it-works" className="workflow section" aria-labelledby="workflow-title">
