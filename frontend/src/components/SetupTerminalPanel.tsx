@@ -108,7 +108,7 @@ export default function SetupTerminalPanel({
               line.raw ? (
                 <div
                   key={line.id}
-                  className="whitespace-pre-wrap break-words text-gray-300"
+                  className="whitespace-pre-wrap text-gray-300 [overflow-wrap:anywhere]"
                 >
                   {line.text}
                   {index === lines.length - 1 && (
@@ -119,7 +119,7 @@ export default function SetupTerminalPanel({
                 <div key={line.id} className="flex gap-2 whitespace-pre-wrap break-words">
                   <span className="shrink-0 text-gray-600">{line.timestamp}</span>
                   <span className="shrink-0 text-audora-300">PS&gt;</span>
-                  <span className={lineColor(line.status)}>
+                  <span className={`min-w-0 flex-1 [overflow-wrap:anywhere] ${lineColor(line.status)}`}>
                     <span className="text-gray-600">[{line.step}]</span> {line.text}
                     {index === lines.length - 1 && (
                       <span className="ml-0.5 animate-pulse text-gray-400">_</span>

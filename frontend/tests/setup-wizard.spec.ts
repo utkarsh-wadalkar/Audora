@@ -12,8 +12,12 @@ const system = (running = false) => ({
   images: { downloader: false, audora_downloader: false, wrapper: false },
 });
 
-async function openWizard(page: Page, check: (route: Route) => Promise<void>) {
-  await page.routeWebSocket(/ws:\/\/localhost:8000\/.*/, () => {});
+async function openWizard(page: Page, check: (route: Route) => Promise<void>, events: object[] = []) {
+  await page.routeWebSocket(/ws:\/\/localhost:8000\/.*/, (socket) => {
+    if (socket.url().endsWith('/ws/setup')) {
+      for (const event of events) socket.send(JSON.stringify(event));
+    }
+  });
   await page.route('http://localhost:8000/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/setup/check') return check(route);
@@ -127,3 +131,27 @@ test('a missing installation provides an actionable result and download link', a
   );
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
 });
+
+for (const width of [1100, 1280]) {
+  test(`FLAC failure stays within the wizard at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 800 });
+    const message = 'Could not prepare FLAC conversion (ffmpeg is missing from the downloader image). Click Retry to rebuild it.';
+    const events = [
+      { type: 'setup_progress', step: 'pull_downloader', status: 'done', message: 'Pulled' },
+      { type: 'setup_progress', step: 'build_downloader', status: 'error', message, error: { code: 'unknown', transient: false } },
+    ];
+    await openWizard(page, async (route) => {
+      await route.fulfill({ json: { success: true, data: system(true) } });
+    }, events);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Try Again', exact: true })).toBeVisible();
+
+    const row = page.getByText('FLAC support', { exact: true }).locator('..');
+    const bounds = await row.evaluate((element) => ({ width: element.clientWidth, scroll: element.scrollWidth }));
+    expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
+    await expect(row).toContainText('Needs attention');
+    await expect(row.getByText(message, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(message, { exact: true })).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath('flac-failure.png') });
+  });
+}

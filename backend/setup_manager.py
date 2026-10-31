@@ -727,32 +727,32 @@ class SetupManager:
         """
         step = "build_downloader"
 
-        if downloader_image.image_is_built():
-            self._emit(step, "running", "Already prepared")
-        else:
-            self._emit(step, "running", "Adding FLAC support...")
-            try:
-                downloader_image.build_downloader_image(
-                    on_log=lambda line: self._emit(step, "running", line)
-                )
-            except Exception as build_error:
-                logger.error(f"Downloader image build failed: {build_error}")
-                raise _StepFailure(
-                    classify_error(str(build_error)),
-                    raw=str(build_error),
-                )
-
-        if not downloader_image.verify_ffmpeg_present():
-            # Permanent: retrying an image that built successfully without a
-            # working ffmpeg will not fix itself.
-            raise _StepFailure(
-                ErrorCode.UNKNOWN,
-                message=(
-                    "Could not prepare FLAC conversion (ffmpeg is missing from "
-                    "the downloader image). Click Retry to rebuild it."
-                ),
-                raw="verify_ffmpeg_present() returned False",
+        try:
+            repair = downloader_image.image_is_built()
+            if repair:
+                self._emit(step, "running", "Checking FLAC support...")
+                try:
+                    if downloader_image.verify_ffmpeg_present():
+                        return
+                except Exception as probe_error:
+                    logger.warning(f"Existing downloader failed verification: {probe_error}")
+            self._emit(step, "running", "Repairing FLAC support..." if repair else "Adding FLAC support...")
+            downloader_image.build_downloader_image(
+                on_log=lambda line: self._emit(step, "running", line),
+                force=repair,
             )
+            if not downloader_image.verify_ffmpeg_present():
+                raise RuntimeError("FFmpeg verification returned no version output")
+        except Exception as build_error:
+            logger.error(f"Downloader preparation failed: {build_error}")
+            raise _StepFailure(
+                classify_error(str(build_error)),
+                message=(
+                    "Audora could not verify FFmpeg for FLAC conversion. "
+                    "Click Try Again to repair it. If it fails again, copy the diagnostic report."
+                ),
+                raw=str(build_error),
+            ) from build_error
 
     def _build_wrapper_step(self) -> None:
         """One idempotent attempt at building the wrapper image from source.

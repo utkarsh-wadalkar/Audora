@@ -73,14 +73,15 @@ def image_is_built() -> bool:
 
 def build_downloader_image(
     on_log: Optional[Callable[[str], None]] = None,
+    *,
+    force: bool = False,
 ) -> None:
     """Build ``audora-downloader``. Idempotent; raises on failure.
 
-    An already-built image is a no-op success so this is safe to re-run after a
-    partial setup. ``on_log`` receives each build log line for surfacing in the
-    setup wizard's terminal.
+    An already-built image is a no-op unless ``force`` repairs an image that
+    failed verification. ``on_log`` receives each build log line for the wizard.
     """
-    if image_is_built():
+    if not force and image_is_built():
         logger.info(f"{AUDORA_DOWNLOADER_IMAGE} already built")
         return
 
@@ -94,6 +95,7 @@ def build_downloader_image(
         path=context,
         tag=AUDORA_DOWNLOADER_IMAGE,
         rm=True,
+        nocache=force,
         # Pull both FROM images when needed. The upstream image is normally
         # already present from the preceding setup step, while a clean Docker
         # host still needs the static-ffmpeg stage fetched automatically.
@@ -114,10 +116,12 @@ def verify_ffmpeg_present() -> bool:
     Checked at setup time on purpose: a missing ffmpeg discovered here is a
     clear, actionable setup failure, whereas the same problem discovered at
     conversion time would strand a finished download in a broken state.
+    Raises with the actual probe failure rather than mislabeling every error
+    as a missing binary.
     """
     client = docker_mgr.get_client()
     if client is None:
-        return False
+        raise RuntimeError("Docker engine unavailable while checking FFmpeg")
     try:
         output = client.containers.run(
             AUDORA_DOWNLOADER_IMAGE,
@@ -125,15 +129,22 @@ def verify_ffmpeg_present() -> bool:
             command=["-version"],
             remove=True,
             network_mode="none",
+            # SDK run() returns None with the engine's `local` logging driver.
+            # Override only this disposable probe, leaving host policy intact.
+            log_config={"type": "json-file"},
+            stderr=True,
         )
     except Exception as probe_error:
         logger.error(f"ffmpeg probe failed in {AUDORA_DOWNLOADER_IMAGE}: {probe_error}")
-        return False
+        raise RuntimeError(f"FFmpeg check failed in {AUDORA_DOWNLOADER_IMAGE}: {probe_error}") from probe_error
+
+    if not output:
+        raise RuntimeError("FFmpeg exited successfully, but Docker returned no version output")
 
     text = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else str(output)
     present = "ffmpeg version" in text.lower()
     if present:
         logger.info(f"ffmpeg verified: {text.strip().splitlines()[0]}")
     else:
-        logger.error(f"ffmpeg probe returned unexpected output: {text[:200]}")
+        raise RuntimeError(f"Unexpected FFmpeg version output: {text[:1000]}")
     return present

@@ -47,7 +47,7 @@ def _make_mgr(monkeypatch, *, docker_ok=True, dns_ok=True, disk_ok=True):
     monkeypatch.setattr(
         setup_manager.downloader_image,
         "build_downloader_image",
-        lambda on_log=None: None,
+        lambda on_log=None, **_kwargs: None,
     )
     return mgr, dm
 

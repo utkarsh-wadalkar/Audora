@@ -21,13 +21,14 @@ Hard rules (QC_plan.md §1, §8.2, §12):
 This module is a pure read: calling it repeatedly has no side effects.
 """
 import platform
+import re
 import subprocess
 import sys
 from typing import Dict, List, Optional
 
 from docker_manager import docker_mgr
 from logger import get_logger, get_recent_logs
-from setup_manager import SETUP_STEPS, StepState, setup_mgr
+from setup_manager import SETUP_STEPS, StepState, classify_error, setup_mgr
 from utils import redact_credentials
 
 logger = get_logger("diagnostics")
@@ -38,6 +39,27 @@ _UNAVAILABLE = "unavailable"
 # Keep this alias for callers/tests while deriving it from the canonical source.
 # Read-only: we only ever call setup_mgr.get_step_state() on these.
 _SETUP_STEPS: List[str] = list(SETUP_STEPS)
+
+_STEP_LABELS = {
+    "pull_downloader": "Download the music downloader",
+    "build_downloader": "Prepare FLAC conversion (FFmpeg)",
+    "build_wrapper": "Prepare the Apple Music authentication service",
+    "complete": "Finish setup",
+}
+
+_DEFAULT_RECOVERY = (
+    "Click Retry in setup. If it fails again, copy this report and include it "
+    "when reporting the issue."
+)
+_RECOVERY = {
+    "docker_unresponsive": "Open Docker Desktop and wait until its engine is running, then click Retry.",
+    "dns_failure": "Check your connection and DNS or VPN settings, then click Retry.",
+    "offline": "Reconnect to the internet, then click Retry if setup has not resumed.",
+    "disk_full": "Free at least 6 GB on the drive used by Docker Desktop, then click Retry.",
+    "registry_rate_limit": "Wait a few minutes for the download server's rate limit to clear, then click Retry.",
+    "registry_unavailable": "Check your internet connection and try again later with Retry.",
+    "auth_denied": "Check whether your VPN, proxy, or network blocks the download server, then click Retry.",
+}
 
 # Windows creation flag to run a subprocess with no console window. Absent on
 # non-Windows platforms, so guard the lookup.
@@ -80,19 +102,41 @@ def _wsl_status() -> str:
             ["wsl", "--status"],
             capture_output=True,
             timeout=10,
-            text=True,
             creationflags=_NO_WINDOW,  # no console window ever surfaces
         )
-        # wsl.exe emits UTF-16 on some builds; text=True usually handles it, but
-        # fall back to whatever we got and strip noise.
-        out = (result.stdout or "").strip() or (result.stderr or "").strip()
-        return out or _UNAVAILABLE
+        # Locale text decoding leaves embedded NULs in WSL's UTF-16 output.
+        # Clipboard consumers can then stop copying at the first character.
+        def decode(output) -> str:
+            if isinstance(output, bytes):
+                if output.startswith((b"\xff\xfe", b"\xfe\xff")):
+                    output = output.decode("utf-16", errors="replace")
+                elif b"\x00" in output:
+                    output = output.decode("utf-16-le", errors="replace")
+                else:
+                    output = output.decode("utf-8-sig", errors="replace")
+            return (output or "").replace("\x00", "").strip()
+
+        return decode(result.stdout) or decode(result.stderr) or _UNAVAILABLE
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning(f"wsl status unavailable: {e}")
         return _UNAVAILABLE
     except Exception as e:  # noqa: BLE001 - never crash the bundle
         logger.warning(f"wsl status unavailable: {e}")
         return _UNAVAILABLE
+
+
+def _docker_environment() -> Dict[str, str]:
+    details = {"os": _UNAVAILABLE, "architecture": _UNAVAILABLE, "logging_driver": _UNAVAILABLE}
+    try:
+        client = docker_mgr.get_client()
+        if client is not None:
+            info = client.info()
+            for field, key in (("os", "OSType"), ("architecture", "Architecture"), ("logging_driver", "LoggingDriver")):
+                if info.get(key):
+                    details[field] = redact_credentials(str(info[key]))
+    except Exception as error:
+        logger.warning(f"Docker environment unavailable: {error}")
+    return details
 
 
 def _os_build() -> str:
@@ -115,9 +159,9 @@ def _last_failed_step() -> Optional[Dict[str, str]]:
     """Read-only introspection of the most recently failed setup step.
 
     Uses ``setup_mgr.get_step_state`` (B's step-state introspection) — never
-    mutates setup_manager. Returns ``{"step", "error"}`` for the last step in
-    orchestration order that is in the FAILED state, or ``None`` if no step has
-    failed. The raw error text is reconstructed from the redacted backend logs
+    mutates setup_manager. Returns the step, label, code and error for the last
+    step in orchestration order that is in the FAILED state, or ``None`` if no
+    step has failed. The raw error text is reconstructed from the backend logs
     (setup_manager logs each surfaced failure), so it is redaction-safe by
     construction; the value is redacted again defensively before return.
     """
@@ -145,8 +189,12 @@ def _last_failed_step() -> Optional[Dict[str, str]]:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"could not read setup error log: {e}")
 
+    code_match = re.search(r"\bsurfacing failure code=([a-z_]+)\b", raw)
+    code = code_match.group(1) if code_match else classify_error(raw)
     return {
         "step": failed_step,
+        "label": _STEP_LABELS.get(failed_step, failed_step),
+        "code": code if code in _RECOVERY else "unknown",
         "error": redact_credentials(raw) if raw else "(no captured error text)",
     }
 
@@ -159,8 +207,8 @@ def _recent_logs(limit: int = 50) -> List[str]:
             ts = entry.get("timestamp", "")
             level = entry.get("level", "")
             name = entry.get("logger", "")
-            msg = redact_credentials(entry.get("message", ""))
-            lines.append(f"{ts} [{level}] {name}: {msg}")
+            msg = entry.get("message", "")
+            lines.append(redact_credentials(f"{ts} [{level}] {name}: {msg}"))
     except Exception as e:  # noqa: BLE001
         logger.warning(f"could not read recent logs: {e}")
     return lines
@@ -174,18 +222,30 @@ def collect_diagnostics() -> Dict[str, object]:
     report. The ``report`` field is a single formatted, copy-paste-ready block;
     the other fields are the same data structured for programmatic use.
     """
-    docker_version = _docker_version()
-    wsl_status = _wsl_status()
-    os_build = _os_build()
+    docker_version = redact_credentials(_docker_version())
+    docker_environment = _docker_environment()
+    wsl_status = redact_credentials(_wsl_status())
+    os_build = redact_credentials(_os_build())
     logs = _recent_logs(50)
     failed_step = _last_failed_step()
+    if failed_step:
+        summary = f"Setup failed at this step: {failed_step['label']}."
+        if failed_step["error"] == "(no captured error text)":
+            summary += " The underlying error was not captured in the recent logs."
+        recovery = _RECOVERY.get(failed_step["code"], _DEFAULT_RECOVERY)
+    else:
+        summary = "No failed setup step is currently recorded. This does not confirm setup has completed."
+        recovery = "If setup is stuck or a download fails, copy this report and include it when reporting the issue."
 
     structured: Dict[str, object] = {
         "docker_version": docker_version,
+        "docker_environment": docker_environment,
         "wsl_status": wsl_status,
         "os_build": os_build,
         "python_version": sys.version.split()[0],
-        "failed_step": failed_step,  # None or {"step", "error"} (redacted)
+        "failed_step": failed_step,
+        "summary": redact_credentials(summary),
+        "recovery": redact_credentials(recovery),
         "recent_logs": logs,         # already redacted
     }
 
@@ -193,7 +253,14 @@ def collect_diagnostics() -> Dict[str, object]:
     # final belt-and-suspenders guard — cheaper than trusting every field.
     parts: List[str] = []
     parts.append("=== Audora Diagnostic Report ===")
+    parts.append("")
+    parts.append("--- Summary ---")
+    parts.append(summary)
+    parts.append(f"Recovery: {structured['recovery']}")
+    parts.append("")
     parts.append(f"Docker version : {docker_version}")
+    parts.append(f"Docker engine  : {docker_environment['os']} / {docker_environment['architecture']}")
+    parts.append(f"Docker logging : {docker_environment['logging_driver']}")
     parts.append(f"OS build       : {os_build}")
     parts.append(f"Python         : {structured['python_version']}")
     parts.append("")
@@ -202,7 +269,8 @@ def collect_diagnostics() -> Dict[str, object]:
     parts.append("")
     parts.append("--- Most recent failed setup step ---")
     if failed_step:
-        parts.append(f"Step : {failed_step['step']}")
+        parts.append(f"Step : {failed_step['label']} ({failed_step['step']})")
+        parts.append(f"Code : {failed_step['code']}")
         parts.append(f"Error: {failed_step['error']}")
     else:
         parts.append("(no failed setup step)")

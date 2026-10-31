@@ -65,7 +65,7 @@ const BREADCRUMBS: { screen: Screen; label: string }[] = [
 // A short, plain-language headline per error taxonomy code (QC_plan §7.1).
 // The single recovery button + its behavior lives in <RetryButton>; this is
 // only the narration of what went wrong.
-function failureHeadline(step: SetupStepState): string {
+function failureHeadline(step: SetupStepState, stepId?: string): string {
   const code = step.error?.code;
   switch (code) {
     case 'docker_unresponsive':
@@ -84,7 +84,9 @@ function failureHeadline(step: SetupStepState): string {
       return 'Audora was denied access while setting up.';
     case 'unknown':
     default:
-      return step.message || 'Something went wrong downloading a required component.';
+      return stepId === 'build_downloader'
+        ? 'FLAC conversion is not ready.'
+        : 'A required component could not be prepared.';
   }
 }
 
@@ -621,7 +623,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               {IMAGE_STEPS.map(({ id, label }) => {
                 const s = setupSteps[id];
                 return (
-                  <div key={id} className="flex items-center gap-2.5 text-sm">
+                  <div key={id} className="flex min-w-0 items-center gap-2.5 text-sm">
                     {s?.status === 'done' ? (
                       <Check size={15} className="shrink-0 text-emerald-400" />
                     ) : s?.status === 'error' ? (
@@ -633,9 +635,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                          happening on this step yet. */
                       <div className="h-3.5 w-3.5 shrink-0 rounded-full border border-gray-600" />
                     )}
-                    <span>{label}</span>
-                    <span className="ml-auto shrink-0 text-xs text-gray-500">
-                      {s?.message || 'waiting'}
+                    <span className="min-w-0 flex-1 break-words">{label}</span>
+                    <span className={`shrink-0 text-xs ${s?.status === 'error' ? 'text-rose-300' : 'text-gray-500'}`}>
+                      {s?.status === 'error' ? 'Needs attention'
+                        : s?.status === 'done' ? 'Ready'
+                        : s?.status === 'running' ? 'Preparing…' : 'Waiting'}
                     </span>
                   </div>
                 );
@@ -656,14 +660,14 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               <div className="space-y-4 rounded-xl border border-rose-400/25 bg-rose-500/[0.08] p-4">
                 <div className="flex items-start gap-2.5">
                   <AlertTriangle size={16} className="mt-0.5 shrink-0 text-rose-300" />
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
                     <p className="text-sm font-medium text-rose-100">
-                      {failureHeadline(failedStep)}
+                      {failureHeadline(failedStep, failedStepId)}
                     </p>
                     {failedStep.message && (
                       /* Secondary text tinted from the surface hue — gray on a
                          rose panel reads as a defect. */
-                      <p className="text-xs text-rose-200/70">{failedStep.message}</p>
+                      <p className="text-sm leading-relaxed text-rose-200/80">{failedStep.message}</p>
                     )}
                   </div>
                 </div>
