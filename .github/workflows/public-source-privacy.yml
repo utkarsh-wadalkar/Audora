@@ -1,0 +1,20 @@
+name: Check public source privacy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-private-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check tracked files and reachable history
+        run: python3 .github/scripts/check-public-source.py
