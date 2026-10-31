@@ -62,6 +62,8 @@ pnpm-debug.log*
 frontend/dist/
 frontend/build/
 frontend/.vite/
+frontend/test-results/
+frontend/playwright-report/
 
 # Cache
 .cache/

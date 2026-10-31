@@ -31,7 +31,7 @@ import zipfile
 from typing import Callable, Dict, List, Optional, Tuple
 
 import downloader_image
-from docker_manager import docker_mgr
+from docker_manager import docker_mgr, find_docker_desktop
 from settings import get_settings, update_settings
 from logger import get_logger
 from runtime_platform import get_runtime_platform
@@ -509,8 +509,9 @@ class SetupManager:
         """Return a system-readiness report for the wizard's Screen 2."""
         runtime = get_runtime_platform()
         win_ok = runtime.system == "Windows"
-        docker_installed = self._docker_installed()
         docker_running = docker_mgr.is_docker_running()
+        # A reachable engine is usable even if PATH or install metadata is missing.
+        docker_installed = docker_running or self._docker_installed()
         wsl_ok = self._wsl_available()
 
         return {
@@ -546,13 +547,7 @@ class SetupManager:
             return True
         if not get_runtime_platform().supports_docker_desktop_start:
             return False
-        return any(
-            os.path.exists(p)
-            for p in (
-                r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
-                r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
-            )
-        )
+        return find_docker_desktop() is not None
 
     def _wsl_available(self) -> bool:
         if not get_runtime_platform().requires_wsl:

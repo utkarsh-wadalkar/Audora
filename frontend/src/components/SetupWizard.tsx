@@ -25,6 +25,11 @@ interface SystemCheck {
 
 type Screen = 'welcome' | 'system' | 'images' | 'signin' | 'done';
 
+type CheckState =
+  | { status: 'idle' | 'checking' }
+  | { status: 'success'; checkedAt: string }
+  | { status: 'error'; message: string };
+
 // Image-setup steps in orchestration order (backend setup_manager). The final
 // "complete" bookkeeping step is not shown as its own row — it just gates the
 // Continue action.
@@ -86,6 +91,8 @@ function failureHeadline(step: SetupStepState): string {
 export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [screen, setScreen] = useState<Screen>('welcome');
   const [check, setCheck] = useState<SystemCheck | null>(null);
+  const [checkState, setCheckState] = useState<CheckState>({ status: 'idle' });
+  const checkInFlight = useRef(false);
 
   // Setup-step state lives in the store (state machine §6.1). Reading it here
   // keeps the wizard a thin view over real event-driven state.
@@ -256,8 +263,22 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   });
 
   const runCheck = async () => {
-    const r = await api.post('/setup/check');
-    setCheck(r.data.data);
+    if (checkInFlight.current) return;
+    checkInFlight.current = true;
+    setCheckState({ status: 'checking' });
+    try {
+      const r = await api.post('/setup/check');
+      if (!r.data?.success || !r.data.data) throw new Error('System check failed');
+      setCheck(r.data.data);
+      setCheckState({ status: 'success', checkedAt: new Date().toLocaleTimeString() });
+    } catch {
+      setCheckState({
+        status: 'error',
+        message: 'Could not check your system. Click Check again to retry. If this keeps happening, restart Audora.',
+      });
+    } finally {
+      checkInFlight.current = false;
+    }
   };
 
   useEffect(() => {
@@ -507,12 +528,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 Audora needs Docker Desktop running to do its work.
               </p>
             </div>
-            {!check ? (
-              <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-black/25 p-4 text-sm text-gray-400">
-                <Loader2 size={15} className="animate-spin text-audora-300" />
-                Looking at your setup…
-              </div>
-            ) : (
+            {check && (
               <div className="space-y-3 rounded-xl border border-white/[0.07] bg-black/25 p-4">
                 <Row ok={check.platform.ok} label={check.platform.label} />
                 <Row
@@ -523,6 +539,38 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 {check.wsl2.applicable && <Row ok={check.wsl2.ok} label="WSL2 available" />}
               </div>
             )}
+            <div
+              role={checkState.status === 'error' ? 'alert' : 'status'}
+              aria-live={checkState.status === 'error' ? 'assertive' : 'polite'}
+              aria-atomic="true"
+              className={`flex items-start gap-2.5 rounded-xl border p-4 text-sm ${
+                checkState.status === 'error'
+                  ? 'border-red-400/20 bg-red-400/5 text-red-200'
+                  : 'border-white/[0.07] bg-black/25 text-gray-400'
+              }`}
+            >
+              {checkState.status === 'checking' && (
+                <Loader2 size={15} aria-hidden="true" className="mt-0.5 shrink-0 animate-spin text-audora-300" />
+              )}
+              {checkState.status === 'error' && (
+                <AlertTriangle size={15} aria-hidden="true" className="mt-0.5 shrink-0" />
+              )}
+              <div>
+                {checkState.status === 'idle' && 'Ready to check your system.'}
+                {checkState.status === 'checking' && 'Checking Docker and system requirements… This can take a few seconds.'}
+                {checkState.status === 'error' && checkState.message}
+                {checkState.status === 'success' && check && (
+                  <>
+                    <p>{check.docker.running
+                      ? 'Check complete. Docker is ready. You can continue.'
+                      : !check.docker.installed
+                        ? `Check complete. Install ${check.docker.install_label}, open it, then check again.`
+                        : `Check complete. Open ${check.docker.install_label} and wait for its engine to start, then check again.`}</p>
+                    <p className="mt-1 text-xs text-gray-500">Last checked at {checkState.checkedAt}</p>
+                  </>
+                )}
+              </div>
+            </div>
             {check && !check.docker.installed && (
               <a
                 href={check.docker.download_url}
@@ -536,16 +584,19 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             <div className="flex gap-2.5">
               <button
                 onClick={startImages}
-                disabled={!check?.docker.running}
+                disabled={checkState.status !== 'success' || !check?.docker.running}
                 className="flex-1 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
               >
                 Continue
               </button>
               <button
                 onClick={runCheck}
-                className="rounded-xl border border-white/[0.10] bg-white/[0.05] px-4 py-3 text-sm text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09]"
+                disabled={checkState.status === 'checking'}
+                aria-busy={checkState.status === 'checking'}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.05] px-4 py-3 text-sm text-gray-200 transition-colors duration-300 ease-out hover:bg-white/[0.09] disabled:cursor-wait disabled:opacity-60"
               >
-                Check again
+                {checkState.status === 'checking' && <Loader2 size={14} aria-hidden="true" className="animate-spin" />}
+                {checkState.status === 'checking' ? 'Checking…' : 'Check again'}
               </button>
             </div>
           </div>
