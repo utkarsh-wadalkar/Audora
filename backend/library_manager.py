@@ -116,12 +116,12 @@ class LibraryManager:
         }
 
     def _art_key(self, track_path: str) -> str:
-        """Stable hash of the track's directory (survives process restarts)."""
-        folder = os.path.dirname(track_path).encode("utf-8", errors="replace")
-        return hashlib.md5(folder).hexdigest()
+        """Stable per-track cache key, including tracks sharing one folder."""
+        path = os.path.abspath(track_path).encode("utf-8", errors="replace")
+        return hashlib.md5(path).hexdigest()
 
     def _cache_art(self, track_path: str, audio) -> Optional[str]:
-        """Cache the track's embedded cover art, one file per album folder.
+        """Cache the track's embedded cover art independently of other tracks.
 
         FLAC stores artwork in PICTURE metadata blocks (``FLAC.pictures``),
         which is a different API from the MP4 ``covr`` atom — both are handled
@@ -140,7 +140,6 @@ class LibraryManager:
             # having made it: _extract_metadata is also called directly, and a
             # missing dir silently cost every track its artwork.
             os.makedirs(_ART_DIR, exist_ok=True)
-            # Tracks in the same folder (same album) share one art file.
             key = self._art_key(track_path)
             out = os.path.join(_ART_DIR, f"{key}.png")
             if not os.path.exists(out):
@@ -238,7 +237,7 @@ class LibraryManager:
         return None
 
     def get_art_path(self, track: Dict) -> Optional[str]:
-        """Return the cached album-art path for a track, if it exists."""
+        """Return this track's cached artwork, if it exists."""
         if not track or not track.get("file_path"):
             return None
         key = self._art_key(track["file_path"])

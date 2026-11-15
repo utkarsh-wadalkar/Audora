@@ -114,3 +114,23 @@ def test_scan_follows_the_current_configured_download_root(monkeypatch, tmp_path
         str(second_track)
     ]
     assert manager.get_albums()[0]["album"] == "Album B"
+
+
+def test_track_art_cache_keeps_distinct_covers_in_one_folder(monkeypatch, tmp_path):
+    monkeypatch.setattr(library_manager, "_ART_DIR", str(tmp_path / "art"))
+    manager = LibraryManager()
+
+    class Audio:
+        def __init__(self, cover):
+            self.pictures = [type("Picture", (), {"data": cover})()]
+
+    first = str(tmp_path / "Essentials" / "01. Cornfield Chase.flac")
+    second = str(tmp_path / "Essentials" / "02. F1.flac")
+    first_art = manager._cache_art(first, Audio(b"cornfield-cover"))
+    second_art = manager._cache_art(second, Audio(b"f1-cover"))
+
+    assert first_art != second_art
+    assert manager.get_art_path({"file_path": first}) == first_art
+    assert manager.get_art_path({"file_path": second}) == second_art
+    assert open(first_art, "rb").read() == b"cornfield-cover"
+    assert open(second_art, "rb").read() == b"f1-cover"

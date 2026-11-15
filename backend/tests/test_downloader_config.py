@@ -89,6 +89,13 @@ def test_generated_config_is_valid_yaml():
     assert parsed, "config parsed to an empty document"
 
 
+def test_playlist_uses_each_song_metadata():
+    yaml = pytest.importorskip("yaml")
+    parsed = yaml.safe_load(downloader_config.build_config())
+    assert parsed["use-songinfo-for-playlist"] is True
+    assert parsed["dl-albumcover-for-playlist"] is False
+
+
 def test_config_never_fuses_keys_onto_one_line():
     """Reproduces the exact upstream defect: `proxy: ""alac-save-folder: ...`."""
     text = downloader_config.build_config()

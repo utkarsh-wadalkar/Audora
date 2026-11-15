@@ -63,6 +63,29 @@ def test_nothing_downloaded_is_still_completed():
     assert _resolve(False, False, _convert(False, 0, 0)) == "completed"
 
 
+def test_only_new_covers_beside_completed_tracks_are_removed(tmp_path):
+    manager = download_manager.DownloadManager()
+    old_folder = tmp_path / "old"
+    new_folder = tmp_path / "new"
+    failed_folder = tmp_path / "failed"
+    for folder in (old_folder, new_folder, failed_folder):
+        folder.mkdir()
+    old_cover = old_folder / "cover.jpg"
+    old_cover.write_bytes(b"existing user image")
+    manager._downloads_path = str(tmp_path)
+    manager._covers_before = manager._sidecar_covers(str(tmp_path))
+    new_cover = new_folder / "cover.jpg"
+    failed_cover = failed_folder / "cover.jpg"
+    new_cover.write_bytes(b"downloaded image")
+    failed_cover.write_bytes(b"needed for retry")
+
+    manager._remove_new_covers([str(new_folder / "song.flac")])
+
+    assert old_cover.read_bytes() == b"existing user image"
+    assert not new_cover.exists()
+    assert failed_cover.exists()
+
+
 # ---------------------------------------------------------------------------
 # Percentage honesty
 # ---------------------------------------------------------------------------

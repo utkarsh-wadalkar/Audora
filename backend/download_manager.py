@@ -59,6 +59,7 @@ class DownloadManager:
         # this download produced, and where they live.
         self._downloads_path: Optional[str] = None
         self._sources_before: set = set()
+        self._covers_before: set = set()
 
     # --- Callback registration ---
     def register_progress_callback(self, cb: Callable[[dict], None]) -> None:
@@ -157,6 +158,7 @@ class DownloadManager:
         # exactly what this run produced (see flac_converter.snapshot_sources).
         self._downloads_path = downloads_path
         self._sources_before = flac_converter.snapshot_sources(downloads_path)
+        self._covers_before = self._sidecar_covers(downloads_path)
 
         docker_downloads = windows_to_docker_path(downloads_path)
         docker_config = windows_to_docker_path(host_config_path)
@@ -279,6 +281,8 @@ class DownloadManager:
             download_failed = bool(failed and not completed)
             if not cancelled and not download_failed:
                 convert_result = await self._convert_to_flac(track_name)
+                if convert_result is not None:
+                    self._remove_new_covers(convert_result["outputs"])
                 # cancel_download() clears _is_running, so losing it here means
                 # the user stopped the job mid-conversion rather than a track
                 # having failed to convert.
@@ -387,6 +391,24 @@ class DownloadManager:
             report,
             lambda: self._is_running,
         )
+
+    @staticmethod
+    def _sidecar_covers(downloads_path: str) -> set:
+        covers = set()
+        for root, _dirs, files in os.walk(downloads_path):
+            for name in files:
+                if name.lower() in {"cover.jpg", "cover.jpeg", "cover.png"}:
+                    covers.add(os.path.abspath(os.path.join(root, name)))
+        return covers
+
+    def _remove_new_covers(self, outputs: List[str]) -> None:
+        completed_folders = {os.path.dirname(os.path.abspath(path)) for path in outputs}
+        for path in self._sidecar_covers(self._downloads_path or "") - self._covers_before:
+            if os.path.dirname(path) in completed_folders:
+                try:
+                    os.remove(path)
+                except OSError as error:
+                    logger.warning(f"Could not remove downloaded cover {path}: {error}")
 
 
 def _ratio_percent(current: int, total: int) -> int:

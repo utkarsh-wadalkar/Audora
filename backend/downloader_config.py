@@ -173,7 +173,7 @@ def build_config() -> str:
         "# --- Tagging -----------------------------------------------------------",
         "tag-sort-order: true",
         "tag-itunes-id: true",
-        "use-songinfo-for-playlist: false",
+        "use-songinfo-for-playlist: true",
         "",
         "# --- Naming ------------------------------------------------------------",
         'album-folder-format: "{AlbumName}"',
