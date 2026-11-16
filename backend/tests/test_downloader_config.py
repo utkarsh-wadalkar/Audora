@@ -1,23 +1,7 @@
-"""Tests for the downloader container config and launch.
+"""Downloader config and launch contracts, including the v0.1.4 image schema.
 
-Three real bugs are pinned here, all found by tracing a failing download:
-
-1. ``working_dir`` was overridden to ``/downloads``. The downloader binary
-   opens ``config.yaml`` by *relative* path, so it resolved against the music
-   folder instead of the image's WORKDIR (``/app``), producing
-   ``open config.yaml: no such file or directory``.
-
-2. The published image ships a **malformed** ``/app/config.yaml``: its build
-   appended save-folder overrides with ``>>`` onto a file lacking a trailing
-   newline, fusing ``proxy: ""`` and ``alac-save-folder:`` onto one line. The
-   binary rejects it with ``yaml: line 97: did not find expected key``. The
-   image also contains no ``config.yaml.example`` to copy from, so Audora
-   generates a valid config and mounts it over the broken one.
-
-3. Docker Desktop was only looked for under ``Program Files``, so the
-   "Start Docker & Retry" recovery was dead on a per-user install.
-
-No Docker daemon is needed: the container config is inspected as a dict.
+The image reads config.yaml from its /data working directory. Audora mounts a
+fresh config there before each run so save paths and wrapper-lite agree.
 """
 import asyncio
 import os
@@ -41,18 +25,19 @@ def _run(coroutine):
     return asyncio.run(coroutine)
 
 
-def test_downloader_image_build_pulls_the_static_ffmpeg_base(monkeypatch, tmp_path):
-    """A fresh Docker host must not require a manual ffmpeg-image pull."""
+def test_downloader_image_uses_pinned_public_image_without_another_build(monkeypatch):
+    """The pinned downloader includes FFmpeg, so no extra image is needed."""
     class _Images:
         def __init__(self):
-            self.build_kwargs = None
+            self.tagged = None
 
-        def get(self, _name):
-            raise AssertionError("the derived image should not exist yet")
+        def get(self, name):
+            assert name == downloader_image.UPSTREAM_DOWNLOADER_IMAGE
+            return self
 
-        def build(self, **kwargs):
-            self.build_kwargs = kwargs
-            return object(), []
+        def tag(self, repository, tag, force):
+            self.tagged = (repository, tag, force)
+            return True
 
     class _Client:
         def __init__(self):
@@ -61,11 +46,10 @@ def test_downloader_image_build_pulls_the_static_ffmpeg_base(monkeypatch, tmp_pa
     client = _Client()
     monkeypatch.setattr(downloader_image.docker_mgr, "image_exists", lambda _name: False)
     monkeypatch.setattr(downloader_image.docker_mgr, "get_client", lambda: client)
-    monkeypatch.setattr(downloader_image, "write_dockerfile", lambda: str(tmp_path / "Dockerfile"))
 
     downloader_image.build_downloader_image()
 
-    assert client.images.build_kwargs["pull"] is True
+    assert client.images.tagged == ("audora-downloader", "2", True)
 
 
 async def _noop_stream():
@@ -82,7 +66,7 @@ async def _noop_stream():
 # ---------------------------------------------------------------------------
 
 def test_generated_config_is_valid_yaml():
-    """The whole point: the image's copy is unparseable, ours must not be."""
+    """The mounted config must be parseable by the downloader."""
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
     assert isinstance(parsed, dict)
@@ -92,12 +76,12 @@ def test_generated_config_is_valid_yaml():
 def test_playlist_uses_each_song_metadata():
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed["use-songinfo-for-playlist"] is True
-    assert parsed["dl-albumcover-for-playlist"] is False
+    assert parsed["metadata"]["tags"]["use-songinfo-for-playlist"] is True
+    assert parsed["metadata"]["artwork"]["dl-for-playlist"] is False
 
 
 def test_config_never_fuses_keys_onto_one_line():
-    """Reproduces the exact upstream defect: `proxy: ""alac-save-folder: ...`."""
+    """Do not reintroduce the malformed YAML seen in an older image."""
     text = downloader_config.build_config()
     assert 'proxy: ""alac-save-folder' not in text
     for line in text.splitlines():
@@ -118,12 +102,12 @@ def test_save_folders_are_absolute_paths_inside_the_mount():
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
     for key in (
-        "alac-save-folder",
-        "atmos-save-folder",
-        "aac-save-folder",
-        "mv-save-folder",
+        "alac",
+        "atmos",
+        "aac",
+        "mv",
     ):
-        value = parsed[key]
+        value = parsed["paths"][key]
         assert value.startswith(downloader_config.CONTAINER_DOWNLOADS + "/"), (
             f"{key}={value!r} is outside the {downloader_config.CONTAINER_DOWNLOADS} mount"
         )
@@ -133,7 +117,7 @@ def test_music_video_folder_is_set():
     """Upstream's appended block omitted mv-save-folder, losing music videos."""
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed.get("mv-save-folder"), "mv-save-folder missing"
+    assert parsed["paths"].get("mv"), "music-video folder missing"
 
 
 def test_wrapper_ports_match_the_wrapper_manager():
@@ -142,10 +126,7 @@ def test_wrapper_ports_match_the_wrapper_manager():
     import wrapper_manager
 
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed["decrypt-m3u8-port"].endswith(
-        f":{wrapper_manager.WRAPPER_DECRYPT_PORT}"
-    )
-    assert parsed["get-m3u8-port"].endswith(f":{wrapper_manager.WRAPPER_M3U8_PORT}")
+    assert parsed["general"]["lite-server"] == wrapper_manager.WRAPPER_STATUS_URL.removesuffix("/status")
 
 
 def test_config_carries_no_credentials():
@@ -174,9 +155,9 @@ def test_write_config_creates_the_file(tmp_path):
 def test_config_is_valid_yaml_with_quality_ceilings():
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed["alac-max"], "no alac-max"
-    assert parsed["atmos-max"], "no atmos-max"
-    assert parsed["aac-type"], "no aac-type"
+    assert parsed["media"]["alac-max"], "no alac-max"
+    assert parsed["media"]["atmos-max"], "no atmos-max"
+    assert parsed["media"]["aac-type"], "no aac-type"
 
 
 def test_build_config_takes_no_format_argument():
@@ -204,16 +185,16 @@ def test_conversion_is_left_to_audora():
     """
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed["convert-after-download"] is False
+    assert parsed["convert"]["after-download"] is False
 
 
 def test_quality_values_are_ones_the_binary_accepts():
     """Values are constrained by the image's own documented choices."""
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
-    assert parsed["alac-max"] in (192000, 96000, 48000, 44100)
-    assert parsed["atmos-max"] in (2768, 2448)
-    assert parsed["aac-type"] in ("aac-lc", "aac", "aac-binaural", "aac-downmix")
+    assert parsed["media"]["alac-max"] in (192000, 96000, 48000, 44100)
+    assert parsed["media"]["atmos-max"] in (2768, 2448)
+    assert parsed["media"]["aac-type"] in ("aac-lc", "aac", "aac-binaural", "aac-downmix")
 
 
 def test_rewriting_replaces_the_old_file(tmp_path):
@@ -264,12 +245,12 @@ def test_launch_does_not_override_working_dir(monkeypatch, tmp_path):
     assert started is True
     assert "working_dir" not in captured, (
         "working_dir must not be set: the binary opens config.yaml relative to "
-        "the image's own WORKDIR (/app)"
+        "the image's own WORKDIR (/data)"
     )
 
 
-def test_launch_mounts_a_config_over_the_broken_one(monkeypatch, tmp_path):
-    """Bug 2: the image's config.yaml is unparseable, so we supply our own."""
+def test_launch_mounts_audoras_current_config(monkeypatch, tmp_path):
+    """The pinned image must read Audora's paths and wrapper-lite endpoint."""
     captured = _capture_container_config(monkeypatch, tmp_path)
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
@@ -278,7 +259,7 @@ def test_launch_mounts_a_config_over_the_broken_one(monkeypatch, tmp_path):
 
     binds = {spec["bind"]: spec for spec in captured["volumes"].values()}
     assert downloader_config.CONTAINER_CONFIG_PATH in binds, (
-        "no config.yaml mounted; the container would read the broken copy"
+        "no Audora config.yaml mounted at the image's working directory"
     )
     assert binds[downloader_config.CONTAINER_CONFIG_PATH]["mode"] == "ro"
     # The downloads mount must survive alongside it.

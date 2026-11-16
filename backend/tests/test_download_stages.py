@@ -86,6 +86,65 @@ def test_only_new_covers_beside_completed_tracks_are_removed(tmp_path):
     assert failed_cover.exists()
 
 
+def test_album_fallback_is_embedded_before_removing_new_cover(monkeypatch, tmp_path):
+    manager = download_manager.DownloadManager()
+    manager._downloads_path = str(tmp_path)
+    manager._covers_before = set()
+    manager._current_url = "https://music.apple.com/us/album/freedom/123"
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"album art")
+    tracks = [str(tmp_path / "one.flac"), str(tmp_path / "two.flac")]
+    applied = []
+    monkeypatch.setattr(
+        download_manager.flac_converter,
+        "embed_album_cover_if_missing",
+        lambda track, image: applied.append((track, image)) or True,
+    )
+
+    manager._remove_new_covers(tracks)
+
+    assert applied == [(track, str(cover)) for track in tracks]
+    assert not cover.exists()
+
+
+def test_failed_fallback_keeps_cover_for_recovery(monkeypatch, tmp_path):
+    manager = download_manager.DownloadManager()
+    manager._downloads_path = str(tmp_path)
+    manager._covers_before = set()
+    manager._current_url = "https://music.apple.com/us/album/freedom/123"
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"album art")
+    monkeypatch.setattr(
+        download_manager.flac_converter,
+        "embed_album_cover_if_missing",
+        lambda _track, _cover: False,
+    )
+
+    manager._remove_new_covers([str(tmp_path / "song.flac")])
+
+    assert cover.exists()
+
+
+def test_existing_album_cover_can_fill_missing_art_but_is_not_deleted(monkeypatch, tmp_path):
+    manager = download_manager.DownloadManager()
+    manager._downloads_path = str(tmp_path)
+    manager._current_url = "https://music.apple.com/us/album/freedom/123"
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"existing album art")
+    manager._covers_before = manager._sidecar_covers(str(tmp_path))
+    applied = []
+    monkeypatch.setattr(
+        download_manager.flac_converter,
+        "embed_album_cover_if_missing",
+        lambda track, image: applied.append((track, image)) or True,
+    )
+
+    manager._remove_new_covers([str(tmp_path / "song.flac")])
+
+    assert applied == [(str(tmp_path / "song.flac"), str(cover))]
+    assert cover.read_bytes() == b"existing album art"
+
+
 # ---------------------------------------------------------------------------
 # Percentage honesty
 # ---------------------------------------------------------------------------

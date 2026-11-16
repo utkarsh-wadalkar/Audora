@@ -144,7 +144,7 @@ def wrapper_log_callback(event: dict) -> None:
 #                      preflighted, auto-retried). Emits `percent`/`progress`.
 #   "build_downloader" Build Audora's derived downloader image with static
 #                      ffmpeg, then verify the ffmpeg probe before downloads.
-#   "build_wrapper"    Build (or detect already-built) the local wrapper image.
+#   "build_wrapper"    Pull (or detect) the wrapper-lite image.
 #   "complete"         Terminal bookkeeping step; done => whole setup succeeded.
 #
 # STATUS (`status`) — mapped from setup_manager's internal StepState:
@@ -571,7 +571,7 @@ def setup_check():
 def setup_images():
     """Kick off image pull/build in the background. Progress via ws/setup.
 
-    Fully automatic — the wrapper image is built from the upstream release, so
+    Fully automatic — the public wrapper-lite image is pulled, so
     no Dockerfile path or other user configuration is involved.
     """
     setup_mgr.run_image_setup()

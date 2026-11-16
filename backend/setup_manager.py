@@ -26,11 +26,10 @@ import subprocess
 import threading
 import time
 import urllib.error
-import urllib.request
-import zipfile
 from typing import Callable, Dict, List, Optional, Tuple
 
 import downloader_image
+from wrapper_manager import WRAPPER_IMAGE
 from docker_manager import docker_mgr, find_docker_desktop
 from settings import get_settings, update_settings
 from logger import get_logger
@@ -38,8 +37,7 @@ from runtime_platform import get_runtime_platform
 
 logger = get_logger("setup")
 
-DOWNLOADER_IMAGE = "ghcr.io/zhaarey/apple-music-downloader"
-WRAPPER_IMAGE = "wrapper"
+DOWNLOADER_IMAGE = downloader_image.UPSTREAM_DOWNLOADER_IMAGE
 
 # Canonical setup orchestration order. Consumers such as diagnostics and the
 # wizard's REST/WebSocket contract import this instead of maintaining a second
@@ -51,50 +49,14 @@ SETUP_STEPS = (
     "complete",
 )
 
-# --- Wrapper source (maintained fork) --------------------------------------
-# Audora builds the wrapper image itself from the upstream release so the user
-# never has to clone a repo, keep a Dockerfile around, or configure a path.
-# The archived zhaarey/wrapper is superseded by this maintained fork.
-#
-# The release tag is lowercase but the asset filename is capitalised, so the
-# filename cannot be derived from the tag — both are pinned explicitly.
-WRAPPER_RELEASE_TAG = "wrapper.x86_64.latest"
-WRAPPER_ASSET_NAME = "Wrapper.x86_64.latest.zip"
-WRAPPER_RELEASE_URL = (
-    "https://github.com/WorldObservationLog/wrapper/releases/download/"
-    f"{WRAPPER_RELEASE_TAG}/{WRAPPER_ASSET_NAME}"
-)
-
-# Host used for the DNS preflight before downloading the wrapper release.
-WRAPPER_RELEASE_HOST = "github.com"
-
-# The wrapper release unpacks flat (``wrapper``, ``rootfs/``, plus upstream's
-# own ``Dockerfile``/``compose.yaml``/``entrypoint.sh``) so ``COPY . /app``
-# needs no flattening. We deliberately overwrite upstream's Dockerfile with
-# this one, which is the known-working build for how Audora runs the container
-# (args passed via the ``args`` env var — see wrapper_manager).
-#
-# ``chmod +x`` is required, not optional: the zip records the exec bit but
-# extracting on Windows drops it, and ``COPY`` faithfully preserves the
-# non-executable mode, so ``./wrapper`` would fail with permission denied.
-WRAPPER_DOCKERFILE = """FROM ubuntu:latest
-WORKDIR /app
-COPY . /app
-RUN chmod +x /app/wrapper
-ENV args ""
-CMD ["bash", "-c", "./wrapper ${args}"]
-EXPOSE 10020 20020
-"""
-
 # Registry host used for the DNS preflight (§7.2). Derived from the image
 # reference so it tracks DOWNLOADER_IMAGE if that ever changes.
 REGISTRY_HOST = DOWNLOADER_IMAGE.split("/", 1)[0]  # "ghcr.io"
 
 
-# Rough footprint of the downloader image on disk; used for the disk-space
-# preflight (§7.2). ~3.7GB image (§2 root-cause #4) plus headroom so we fail
-# *before* a mid-pull vhdx cap rather than after (§2 root-cause #5).
-_DOWNLOADER_REQUIRED_BYTES = 6 * 1024 * 1024 * 1024  # 6 GB with buffer
+# The pinned downloader and wrapper-lite images occupy about 205 and 340 MiB.
+# Leave room for temporary layers and Docker's virtual disk growth.
+_DOWNLOADER_REQUIRED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 # --- Step state machine (§6.1) --------------------------------------------
@@ -565,9 +527,9 @@ class SetupManager:
 
     # --- Image setup (runs in a background thread) ---
     def run_image_setup(self) -> None:
-        """Pull the downloader image and build the wrapper image.
+        """Pull the downloader and wrapper-lite images.
 
-        Fully automatic: the wrapper image is built from the upstream release
+        Fully automatic: the wrapper-lite image is pulled from the public registry
         (download -> extract -> generate Dockerfile -> docker build), so no
         user-supplied Dockerfile or Settings path is ever required.
 
@@ -620,8 +582,7 @@ class SetupManager:
             return
         self._emit_state("pull_downloader", StepState.SUCCESS, "Pulled")
 
-        # 2) Build Audora's downloader image (upstream + ffmpeg) so downloads
-        #    can be converted to FLAC without the user installing anything.
+        # 2) Tag the pinned downloader image and verify its bundled FFmpeg.
         downloader_ok = self._run_step_with_retry(
             "build_downloader",
             self._build_downloader_step,
@@ -632,16 +593,16 @@ class SetupManager:
             return
         self._emit_state("build_downloader", StepState.SUCCESS, "Ready")
 
-        # 3) Build wrapper from source (idempotent: present image is a no-op).
+        # 3) Fetch the wrapper-lite HTTP service required by this downloader.
         build_ok = self._run_step_with_retry(
             "build_wrapper",
             self._build_wrapper_step,
-            "Building wrapper image...",
+            "Downloading decryption service...",
             sleep=sleep,
         )
         if not build_ok:
             return
-        self._emit_state("build_wrapper", StepState.SUCCESS, "Built")
+        self._emit_state("build_wrapper", StepState.SUCCESS, "Ready")
 
         self._emit_state("complete", StepState.RUNNING, "Finishing setup...")
         self._emit_state("complete", StepState.SUCCESS, "Setup complete")
@@ -656,68 +617,11 @@ class SetupManager:
             target = (drive + os.sep) if drive else os.path.expanduser("~")
         return target
 
-    def _wrapper_work_dir(self) -> str:
-        """Directory the wrapper source is unpacked into and built from.
-
-        Derived from ``wrapper_data_path`` (which points at
-        ``<wrapper>/rootfs/data``) so the extracted ``rootfs`` lands exactly
-        where the running container expects its bind mount. Falls back to a
-        directory next to the backend if the setting is unusable.
-        """
-        data_path = get_settings().get("wrapper_data_path") or ""
-        # ".../wrapper/rootfs/data" -> ".../wrapper"
-        marker = os.path.join("rootfs", "data")
-        normalised = os.path.normpath(data_path) if data_path else ""
-        if normalised and normalised.lower().endswith(marker.lower()):
-            return os.path.dirname(os.path.dirname(normalised))
-        if normalised:
-            return normalised
-        return os.path.join(str(get_runtime_platform().data_dir), "wrapper")
-
-    def _download_file(self, url: str, dest: str) -> None:
-        """Stream ``url`` to ``dest``. Raises on any network/IO error."""
-        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        # Explicit UA: bare urllib is rejected by some GitHub edge nodes.
-        request = urllib.request.Request(url, headers={"User-Agent": "Audora"})
-        with urllib.request.urlopen(request, timeout=60) as response:
-            with open(dest, "wb") as out:
-                shutil.copyfileobj(response, out, length=1024 * 256)
-
-    def _extract_archive(self, archive: str, dest: str) -> None:
-        """Extract the wrapper zip into ``dest``. Raises on a bad archive."""
-        os.makedirs(dest, exist_ok=True)
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest)
-
-    def _write_dockerfile(self, context: str) -> str:
-        """Write the pinned Dockerfile into ``context``, returning its path.
-
-        Called AFTER extraction on purpose: the release ships its own
-        Dockerfile, and ours must be the one that survives.
-        """
-        os.makedirs(context, exist_ok=True)
-        path = os.path.join(context, "Dockerfile")
-        with open(path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(WRAPPER_DOCKERFILE)
-        return path
-
-    def _docker_build_wrapper(self, context: str) -> None:
-        """``docker build -t wrapper <context>``. Raises on failure."""
-        client = docker_mgr.get_client()
-        if client is None:
-            raise _StepFailure(ErrorCode.DOCKER_UNRESPONSIVE, raw="Docker client is None")
-        _image, logs = client.images.build(path=context, tag=WRAPPER_IMAGE, rm=True)
-        for chunk in logs:
-            if isinstance(chunk, dict) and "stream" in chunk:
-                line = str(chunk["stream"]).strip()
-                if line:
-                    logger.info(f"[wrapper build] {line}")
-
     def _build_downloader_step(self) -> None:
-        """One idempotent attempt at building Audora's downloader image.
+        """One idempotent attempt at preparing Audora's downloader image.
 
-        The image is the upstream downloader plus a static ffmpeg, which is what
-        lets Audora convert the lossless ALAC download into FLAC. FLAC matters
+        The pinned public image includes FFmpeg, which lets Audora convert the
+        lossless ALAC download into FLAC. FLAC matters
         because Chromium (and so Electron) cannot decode ALAC, so an unconverted
         download would never play in Audora's own player.
 
@@ -755,82 +659,8 @@ class SetupManager:
             ) from build_error
 
     def _build_wrapper_step(self) -> None:
-        """One idempotent attempt at building the wrapper image from source.
-
-        Downloads the upstream release, extracts it, generates the Dockerfile,
-        and builds — emitting a ``setup_progress`` event per stage in the same
-        schema the streamed pull uses. Raises ``_StepFailure`` (classified) so
-        the caller's retry loop can auto-retry transient network failures.
-
-        Requires no user configuration whatsoever.
-        """
-        step = "build_wrapper"
-
-        # Idempotency (§6.4): already-built image is a no-op success.
-        if docker_mgr.image_exists(WRAPPER_IMAGE):
-            self._emit_state(step, StepState.RUNNING, "Already built")
-            return  # caller marks SUCCESS
-
-        context = self._wrapper_work_dir()
-        archive = os.path.join(context, WRAPPER_ASSET_NAME)
-
-        # 1) Download the release archive.
-        self._emit(step, "running", "Downloading wrapper...")
-        try:
-            self._download_file(WRAPPER_RELEASE_URL, archive)
-        except Exception as download_error:
-            logger.error(f"Wrapper download failed: {download_error}")
-            raise _StepFailure(
-                classify_error(str(download_error)),
-                "Could not download the wrapper component.",
-                raw=str(download_error),
-            )
-
-        # 2) Extract it (flat: ``wrapper`` + ``rootfs/`` land at the root).
-        self._emit(step, "running", "Extracting wrapper...")
-        try:
-            self._extract_archive(archive, context)
-        except Exception as extract_error:
-            logger.error(f"Wrapper extract failed: {extract_error}")
-            raise _StepFailure(
-                ErrorCode.UNKNOWN,
-                "The downloaded wrapper component could not be unpacked.",
-                raw=str(extract_error),
-            )
-        finally:
-            # The build context is COPY'd wholesale into the image, so the
-            # ~48MB archive must not linger there. Removal is best-effort:
-            # failing to tidy up must never fail the build.
-            try:
-                os.remove(archive)
-            except OSError as cleanup_error:
-                logger.warning(f"Could not remove {archive}: {cleanup_error}")
-
-        # 3) Generate the Dockerfile — after extraction, so ours wins.
-        self._emit(step, "running", "Generating Dockerfile...")
-        try:
-            self._write_dockerfile(context)
-        except Exception as dockerfile_error:
-            logger.error(f"Wrapper Dockerfile write failed: {dockerfile_error}")
-            raise _StepFailure(
-                ErrorCode.UNKNOWN,
-                "Could not prepare the wrapper build.",
-                raw=str(dockerfile_error),
-            )
-
-        # 4) Build the image.
-        self._emit(step, "running", "Building wrapper image...")
-        try:
-            self._docker_build_wrapper(context)
-        except _StepFailure:
-            raise
-        except Exception as build_error:
-            logger.error(f"Wrapper build failed: {build_error}")
-            raise _StepFailure(
-                classify_error(str(build_error)),
-                "Build failed — see logs",
-                raw=str(build_error),
-            )
+        """Pull the HTTP wrapper; keep the wizard's existing step ID stable."""
+        self._pull_image_step("build_wrapper", WRAPPER_IMAGE, self._disk_target())
 
 
     def mark_complete(self) -> None:

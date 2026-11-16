@@ -1,22 +1,11 @@
-"""Wrapper container lifecycle (WorldObservationLog/wrapper fork).
-
-Key facts:
-  * Image built locally, tagged ``wrapper``.
-  * Args passed via ``-e args="..."`` env var, NOT direct command args.
-  * Login mode:  args="-L email:password -H 0.0.0.0"
-  * Normal mode: args="-H 0.0.0.0"
-  * 2FA: uses ``-F/--code-from-file``. The target path is parsed from this
-    container run's own prompt and mapped through the configured data volume;
-    no version-specific suffix is stored in Audora.
-  * Ports 10020 (decrypt), 20020 (m3u8), 30020 (account).
-  * Volume: {wrapper_data_path} -> /app/rootfs/data
-  * Readiness: poll logs for "listening".
-"""
+"""Lifecycle and authentication for the wrapper-lite HTTP service."""
+import json
 import os
 import posixpath
 import re
 import threading
 import time
+import urllib.request
 from collections import deque
 from typing import Callable, Deque, Dict, List, Optional
 
@@ -27,15 +16,16 @@ from utils import redact_credentials, windows_to_docker_path
 
 logger = get_logger("wrapper")
 
-WRAPPER_IMAGE = "wrapper"
+WRAPPER_IMAGE = (
+    "ghcr.io/worldobservationlog/wrapper-lite@"
+    "sha256:fa16685e73c95cce0400dce6eda3c6c8e524d16e9a2b146d9112d2f9df2d97a4"
+)
 WRAPPER_CONTAINER_NAME = "audora-wrapper"
 
-# Host ports the wrapper serves on (network_mode="host", so container ports
-# are host ports). 10020 is the one downloads actually need, so it is what
-# gates readiness; the other two are probed only for reporting.
-WRAPPER_DECRYPT_PORT = 10020
-WRAPPER_M3U8_PORT = 20020
-WRAPPER_ACCOUNT_PORT = 30020
+# The downloader and wrapper share the host network. Readiness checks the
+# wrapper-lite HTTP API, not merely whether the TCP port accepts connections.
+WRAPPER_LITE_PORT = 12340
+WRAPPER_STATUS_URL = f"http://127.0.0.1:{WRAPPER_LITE_PORT}/status"
 
 # How long a single liveness probe may take. This runs on the startup path,
 # so it must not add perceptible latency.
@@ -47,7 +37,7 @@ _PROBE_TIMEOUT_SECONDS = 1.0
 _TWOFA_POLL_SECONDS = 2.0
 
 # Wrapper output is the source of truth for setup authentication state.
-_READY_LOG_PATTERN = re.compile(r"\blistening(?:\s+on)?\s+0\.0\.0\.0:\d+\b", re.IGNORECASE)
+_READY_LOG_PATTERN = re.compile(r"\blistening(?:\s+on)?\s+0\.0\.0\.0:12340\b", re.IGNORECASE)
 _TWOFA_PATH_PATTERNS = (
     re.compile(r"Enter your 2FA code into\s+(.+?)\s*$", re.IGNORECASE),
     re.compile(r"Example command:\s*echo\s+-n\s+\S+\s*>\s*(.+?)\s*$", re.IGNORECASE),
@@ -97,7 +87,9 @@ def resolve_twofa_host_path(reported_path: str, wrapper_data_path: str) -> str:
         return ""
 
     normalized = reported_path.replace("\\", "/")
-    if normalized.startswith("/"):
+    if normalized == "/data" or normalized.startswith("/data/"):
+        container_path = posixpath.normpath("/app/rootfs" + normalized)
+    elif normalized.startswith("/"):
         container_path = posixpath.normpath(normalized)
     else:
         container_path = posixpath.normpath(posixpath.join("/app", normalized))
@@ -180,25 +172,29 @@ class WrapperManager:
 
     def wait_for_setup_state(self, timeout: int = 60) -> str:
         deadline = time.time() + timeout
-        with self._state_condition:
-            while self._state not in _TERMINAL_SETUP_STATES:
+        while True:
+            with self._state_condition:
+                if self._state in _TERMINAL_SETUP_STATES:
+                    return self._state
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     return self._state
-                self._state_condition.wait(timeout=remaining)
-            return self._state
+                self._state_condition.wait(timeout=min(1.0, remaining))
+            if self._state == WRAPPER_STATE_STARTING and self.is_wrapper_ready():
+                self._set_state(WRAPPER_STATE_AUTHENTICATED)
+                self._emit_auth("auth_success", "Signed in successfully")
 
     def get_twofa_host_path(self) -> str:
         return self._twofa_host_path
 
     # --- Container config ---
-    def _base_config(self, args: str) -> dict:
+    def _base_config(self, environment: dict) -> dict:
         settings = get_settings()
         data_path = windows_to_docker_path(settings.get("wrapper_data_path"))
         return {
             "image": WRAPPER_IMAGE,
             "name": WRAPPER_CONTAINER_NAME,
-            "environment": {"args": args},
+            "environment": environment,
             "volumes": {data_path: {"bind": "/app/rootfs/data", "mode": "rw"}},
             # The wrapper binary is a launcher: it bind-mounts /dev/urandom,
             # chroots into ./rootfs, and execs the real decryptor inside. Both
@@ -207,7 +203,7 @@ class WrapperManager:
             # Upstream's own run instructions use --privileged for this reason.
             "privileged": True,
             # network_mode="host" shares the host network namespace directly, so
-            # the wrapper's ports (10020/20020/30020) are accessible on the host
+            # wrapper-lite's port 12340 is accessible on the host
             # without explicit port bindings.  Passing both network_mode="host"
             # AND a ports mapping causes a Docker APIError ("conflicting options:
             # port publishing and the host network mode"), so we omit ports here.
@@ -220,14 +216,13 @@ class WrapperManager:
     # --- Lifecycle ---
     def start_wrapper(self, login: bool = False) -> bool:
         """Start in normal mode (saved session)."""
-        return self._start(args="-H 0.0.0.0", is_login=False)
+        return self._start(environment={}, is_login=False)
 
     def start_wrapper_login(self, email: str, password: str) -> bool:
         """Start in login mode with credentials + code-from-file (2FA)."""
-        args = f"-L {email}:{password} -F -H 0.0.0.0"
-        return self._start(args=args, is_login=True)
+        return self._start(environment={"USERNAME": email, "PASSWORD": password}, is_login=True)
 
-    def _start(self, args: str, is_login: bool) -> bool:
+    def _start(self, environment: dict, is_login: bool) -> bool:
         if not docker_mgr.is_docker_running():
             logger.error("Docker is not running; cannot start wrapper")
             self._emit_auth("auth_error", "Docker is not running")
@@ -262,11 +257,11 @@ class WrapperManager:
         self._twofa_reported_path = ""
         self._twofa_host_path = ""
         self._set_state(WRAPPER_STATE_STARTING)
-        logger.info(f"Starting wrapper: {redact_credentials(args)}")
+        logger.info("Starting wrapper-lite service")
         if is_login:
             self._emit_auth("auth_progress", "Starting wrapper...")
 
-        config = self._base_config(args)
+        config = self._base_config(environment)
         container = docker_mgr.start_container(config)
         if container is None:
             # Surface the real Docker error (image missing, daemon error, etc.)
@@ -292,15 +287,16 @@ class WrapperManager:
         return self.is_wrapper_listening()
 
     def is_wrapper_listening(self) -> bool:
-        """True if the wrapper's decrypt port accepts connections.
-
-        Only 10020 is checked: it is the port downloads depend on, and the
-        m3u8/account servers bind slightly later, so requiring all three would
-        report a usable wrapper as dead.
-        """
-        return docker_mgr.is_port_listening(
-            WRAPPER_DECRYPT_PORT, timeout=_PROBE_TIMEOUT_SECONDS
-        )
+        """Require a successful, authenticated wrapper-lite HTTP response."""
+        try:
+            with urllib.request.urlopen(WRAPPER_STATUS_URL, timeout=_PROBE_TIMEOUT_SECONDS) as response:
+                status = json.loads(response.read())
+            return (
+                status.get("code") == 0
+                and bool(status.get("data", {}).get("regions"))
+            )
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
 
     def stop_wrapper(self) -> bool:
         self._stop_monitor = True
@@ -386,8 +382,8 @@ class WrapperManager:
         self._twofa_watchdog.start()
 
     def _inspect_log_line(self, line: str, is_login: bool) -> None:
-        self._emit_log(line)
         redacted_line = redact_credentials(line)
+        self._emit_log(redacted_line)
         logger.info(f"[wrapper] {redacted_line}")
         lowered_line = line.lower()
 
@@ -397,6 +393,8 @@ class WrapperManager:
             return
 
         reported_path = parse_twofa_path_from_log(line)
+        if is_login and not reported_path and "waiting for input" in lowered_line:
+            reported_path = "/data/2fa.txt"
         if reported_path:
             host_path = resolve_twofa_host_path(
                 reported_path, get_settings().get("wrapper_data_path", "")
@@ -430,7 +428,7 @@ class WrapperManager:
             )
             return
 
-        if _READY_LOG_PATTERN.search(line):
+        if _READY_LOG_PATTERN.search(line) and self.is_wrapper_listening():
             if not self._ready:
                 self._ready = True
                 self._pending_2fa = False
@@ -440,31 +438,28 @@ class WrapperManager:
 
     # --- Readiness ---
     def is_wrapper_ready(self) -> bool:
-        if self._ready:
-            return True
         # Fall back to a real liveness probe if we missed the ready log marker
         # (e.g. the container was started by a previous backend process, so no
         # monitor thread ever scraped its logs). Container status alone is too
         # weak — "running" is true before the wrapper binds its port.
         if docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME) != "running":
             return False
-        return self.is_wrapper_listening()
+        ready = self.is_wrapper_listening()
+        self._ready = ready
+        return ready
 
     def wait_until_ready(self, timeout: int = 60) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if self._ready:
-                return True
             # A reused container never emits a fresh "listening" line, so the
             # probe is the only way this can ever succeed for it.
-            if self.is_wrapper_listening():
-                self._ready = True
+            if self.is_wrapper_ready():
                 return True
             if self._pending_2fa:
                 # Waiting on the user; don't burn the timeout.
                 deadline = time.time() + timeout
             time.sleep(1)
-        return self._ready
+        return self.is_wrapper_ready()
 
     def get_wrapper_status(self) -> Dict:
         status = docker_mgr.get_container_status(WRAPPER_CONTAINER_NAME)

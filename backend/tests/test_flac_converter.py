@@ -243,6 +243,36 @@ def test_cover_art_survives_a_missing_cache_directory(tmp_path, monkeypatch):
     assert os.path.exists(cached)
 
 
+def test_album_cover_fills_only_a_missing_flac_picture(monkeypatch, tmp_path):
+    from mutagen.flac import Picture
+
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"\xff\xd8\xffalbum-art")
+    saved = []
+
+    class FakeFlac:
+        def __init__(self, pictures):
+            self.pictures = pictures
+
+        def add_picture(self, picture):
+            self.pictures.append(picture)
+
+        def save(self):
+            saved.append(True)
+
+    existing = FakeFlac([Picture()])
+    missing = FakeFlac([])
+    tracks = iter([existing, missing])
+    monkeypatch.setattr(flac_converter, "FLAC", lambda _path: next(tracks))
+
+    assert flac_converter.embed_album_cover_if_missing("one.flac", str(cover))
+    assert flac_converter.embed_album_cover_if_missing("two.flac", str(cover))
+    assert len(existing.pictures) == 1
+    assert saved == [True]
+    assert missing.pictures[0].data == cover.read_bytes()
+    assert missing.pictures[0].mime == "image/jpeg"
+
+
 def test_cancellation_stops_between_files(monkeypatch, tmp_path):
 
     sources = [_make_source(tmp_path, f"{index}. Track.m4a") for index in range(3)]

@@ -48,7 +48,7 @@ const IMAGE_STEPS: { id: string; label: string; narration: string }[] = [
   },
   {
     id: 'build_wrapper',
-    label: 'wrapper image',
+    label: 'decryption service',
     narration:
       'Downloading the decryption service (wrapper) — this lets Audora talk securely to Apple Music.',
   },

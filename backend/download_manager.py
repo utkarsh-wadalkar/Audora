@@ -3,7 +3,7 @@
 Docker invocation (verified in task.md):
   Album: audora-downloader <url>
   Song:  add --song
-  Network: host (to reach wrapper ports 10020/20020/30020)
+  Network: host (to reach wrapper-lite HTTP on port 12340)
   Volume:  {downloads_path} -> /downloads
 
 Two stages, one job
@@ -144,10 +144,8 @@ class DownloadManager:
         except OSError:
             pass
 
-        # The published image ships a malformed /app/config.yaml and no
-        # config.yaml.example to copy from, so Audora supplies its own and
-        # mounts it over the broken one. Regenerated every run so an upgrade
-        # can never leave a stale config behind.
+        # The current image reads /data/config.yaml. Regenerate it on every
+        # run so an upgrade cannot reuse the old flat configuration schema.
         try:
             host_config_path = downloader_config.write_config(CONFIG_DIR)
         except OSError as config_error:
@@ -181,7 +179,7 @@ class DownloadManager:
             "detach": True,
             # No working_dir override: the binary opens "config.yaml" by
             # relative path, so it must run from the image's own WORKDIR
-            # (/app). Pointing this at /downloads is what produced
+            # (/data). Pointing this at /downloads is what produced
             # "open config.yaml: no such file or directory".
         }
 
@@ -403,12 +401,27 @@ class DownloadManager:
 
     def _remove_new_covers(self, outputs: List[str]) -> None:
         completed_folders = {os.path.dirname(os.path.abspath(path)) for path in outputs}
-        for path in self._sidecar_covers(self._downloads_path or "") - self._covers_before:
+        covers = self._sidecar_covers(self._downloads_path or "")
+        for path in sorted(covers, key=lambda item: (
+            os.path.dirname(item),
+            {"cover.jpg": 0, "cover.jpeg": 1, "cover.png": 2}[os.path.basename(item).lower()],
+        )):
             if os.path.dirname(path) in completed_folders:
-                try:
-                    os.remove(path)
-                except OSError as error:
-                    logger.warning(f"Could not remove downloaded cover {path}: {error}")
+                if url_kind(self._current_url or "") in {"album", "artist", "song"}:
+                    folder_tracks = [
+                        track for track in outputs
+                        if os.path.dirname(os.path.abspath(track)) == os.path.dirname(path)
+                    ]
+                    if not all(
+                        flac_converter.embed_album_cover_if_missing(track, path)
+                        for track in folder_tracks
+                    ):
+                        continue
+                if path not in self._covers_before:
+                    try:
+                        os.remove(path)
+                    except OSError as error:
+                        logger.warning(f"Could not remove downloaded cover {path}: {error}")
 
 
 def _ratio_percent(current: int, total: int) -> int:

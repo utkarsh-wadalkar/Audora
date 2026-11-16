@@ -184,7 +184,7 @@ export const useAppStore = create<AppState>((set) => ({
       };
       seedDone('pull_downloader', images.downloader, 'Already downloaded');
       seedDone('build_downloader', images.audora_downloader, 'Already prepared');
-      seedDone('build_wrapper', images.wrapper, 'Already built');
+      seedDone('build_wrapper', images.wrapper, 'Already ready');
       return { setupSteps: merged };
     }),
 

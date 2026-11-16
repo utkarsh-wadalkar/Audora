@@ -28,6 +28,8 @@ never installs anything.
 import os
 from typing import Callable, Dict, List, Optional, Sequence, Set
 
+from mutagen.flac import FLAC, Picture
+
 from docker_manager import docker_mgr
 from downloader_image import AUDORA_DOWNLOADER_IMAGE
 from logger import get_logger
@@ -99,6 +101,32 @@ def is_valid_flac(path: str) -> bool:
         with open(path, "rb") as handle:
             return handle.read(4) == _FLAC_MAGIC
     except OSError:
+        return False
+
+
+def embed_album_cover_if_missing(track_path: str, cover_path: str) -> bool:
+    """Add an album cover only when the finished track has no embedded image."""
+    try:
+        audio = FLAC(track_path)
+        if audio.pictures:
+            return True
+        with open(cover_path, "rb") as handle:
+            data = handle.read()
+        if data.startswith(b"\xff\xd8\xff"):
+            mime = "image/jpeg"
+        elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+            mime = "image/png"
+        else:
+            raise ValueError("Album cover is not a JPEG or PNG")
+        picture = Picture()
+        picture.type = 3
+        picture.mime = mime
+        picture.data = data
+        audio.add_picture(picture)
+        audio.save()
+        return True
+    except Exception as error:
+        logger.warning(f"Could not embed album cover in {track_path}: {error}")
         return False
 
 

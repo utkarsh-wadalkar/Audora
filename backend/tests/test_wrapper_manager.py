@@ -50,6 +50,7 @@ def _make_mgr(
     monkeypatch.setattr(
         docker_mgr, "is_port_listening", lambda port, host="127.0.0.1", timeout=1.0: listening
     )
+    monkeypatch.setattr(manager, "is_wrapper_listening", lambda: listening)
     # Settings are read by _base_config; the module imported get_settings by
     # name, so patch it on wrapper_manager rather than on settings.
     monkeypatch.setattr(
@@ -138,27 +139,24 @@ def test_probe_never_raises_on_unexpected_error(monkeypatch):
 
 
 def test_wrapper_listening_requires_the_decrypt_port(monkeypatch, tmp_path):
-    """10020 is the port downloads actually need, so it gates readiness."""
-    manager, docker_mgr = _make_mgr(monkeypatch, tmp_path)
-    probed = []
+    """The current wrapper's HTTP status is the readiness contract."""
+    manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
 
-    def only_decrypt(port, host="127.0.0.1", timeout=1.0):
-        probed.append(port)
-        return port == 10020
+    class _StatusResponse:
+        def __enter__(self):
+            return self
 
-    monkeypatch.setattr(docker_mgr, "is_port_listening", only_decrypt)
-    assert manager.is_wrapper_listening() is True
-    assert 10020 in probed
+        def __exit__(self, *_args):
+            return False
 
+        def read(self):
+            return b'{"code":0,"data":{"regions":["us"]}}'
 
-def test_wrapper_not_listening_when_decrypt_port_is_dead(monkeypatch, tmp_path):
-    manager, docker_mgr = _make_mgr(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        docker_mgr,
-        "is_port_listening",
-        lambda port, host="127.0.0.1", timeout=1.0: port != 10020,
+        manager, "is_wrapper_listening", WrapperManager.is_wrapper_listening.__get__(manager)
     )
-    assert manager.is_wrapper_listening() is False
+    monkeypatch.setattr(wrapper_manager.urllib.request, "urlopen", lambda *_args, **_kwargs: _StatusResponse())
+    assert manager.is_wrapper_listening() is True
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +199,7 @@ def test_login_never_reuses_an_existing_container(monkeypatch, tmp_path):
 
     assert manager.start_wrapper_login("user@example.com", "secret") is True
     assert len(start_calls) == 1, "login must not reuse a container started without -L"
-    assert "-L" in start_calls[0]["environment"]["args"]
+    assert start_calls[0]["environment"] == {"USERNAME": "user@example.com", "PASSWORD": "secret"}
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +301,7 @@ def test_wait_until_ready_succeeds_via_the_probe(monkeypatch, tmp_path):
 
 def test_base_config_keeps_privileged_and_host_network(monkeypatch, tmp_path):
     manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
-    config = manager._base_config("-H 0.0.0.0")
+    config = manager._base_config({})
 
     # The wrapper bind-mounts /dev/urandom and chroots; both need privileges.
     assert config["privileged"] is True
@@ -394,7 +392,8 @@ def test_wrapper_emits_authenticated_state_only_for_listening_log(monkeypatch, t
     events = []
     manager.register_auth_callback(events.append)
 
-    manager._inspect_log_line("listening 0.0.0.0:10020", is_login=False)
+    monkeypatch.setattr(manager, "is_wrapper_listening", lambda: True)
+    manager._inspect_log_line("listening 0.0.0.0:12340", is_login=False)
 
     assert events == [{"type": "auth_success", "message": "Signed in successfully"}]
 

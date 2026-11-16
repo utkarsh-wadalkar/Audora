@@ -81,13 +81,13 @@ def test_failed_ffmpeg_repair_keeps_the_underlying_error(monkeypatch):
     assert "OCI runtime create failed: exec format error" in failure.value.raw
 
 
-def test_repair_can_build_even_when_the_image_tag_already_exists(monkeypatch, tmp_path):
-    built = []
-    client = SimpleNamespace(images=SimpleNamespace(build=lambda **kwargs: (built.append(kwargs), [])))
+def test_repair_can_retag_pinned_image_even_when_the_old_tag_exists(monkeypatch):
+    tagged = []
+    image = SimpleNamespace(tag=lambda repository, tag, force: tagged.append((repository, tag, force)) or True)
+    client = SimpleNamespace(images=SimpleNamespace(get=lambda name: image))
     monkeypatch.setattr(downloader_image, "image_is_built", lambda: True)
     monkeypatch.setattr(downloader_image.docker_mgr, "get_client", lambda: client)
-    monkeypatch.setattr(downloader_image, "write_dockerfile", lambda: str(tmp_path / "Dockerfile"))
 
     downloader_image.build_downloader_image(force=True)
 
-    assert len(built) == 1
+    assert tagged == [("audora-downloader", "2", True)]

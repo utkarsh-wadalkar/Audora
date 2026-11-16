@@ -43,7 +43,7 @@ def test_wrapper_log_callback_forwards_the_full_raw_line(monkeypatch):
         lambda manager, message: forwarded.append((manager, message)),
     )
 
-    app_module.wrapper_log_callback({"sequence": 7, "line": "listening 0.0.0.0:10020"})
+    app_module.wrapper_log_callback({"sequence": 7, "line": "listening 0.0.0.0:12340"})
 
     assert forwarded == [
         (
@@ -51,7 +51,7 @@ def test_wrapper_log_callback_forwards_the_full_raw_line(monkeypatch):
             {
                 "type": "wrapper_log",
                 "sequence": 7,
-                "line": "listening 0.0.0.0:10020",
+                "line": "listening 0.0.0.0:12340",
             },
         )
     ]

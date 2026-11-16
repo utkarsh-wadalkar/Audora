@@ -61,10 +61,9 @@ jobs:
         run: |
           npm run test:electron
           npm run typecheck
-          npm run build
       - name: Package the native desktop application
         working-directory: frontend
-        run: npx electron-builder ${{ matrix.builder_args }} --publish never
+        run: npm run dist -- ${{ matrix.builder_args }} --publish never
       - name: Smoke-test the packaged Windows application
         if: runner.os == 'Windows'
         working-directory: frontend
