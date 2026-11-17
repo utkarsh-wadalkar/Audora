@@ -22,10 +22,20 @@ WRAPPER_IMAGE = (
 )
 WRAPPER_CONTAINER_NAME = "audora-wrapper"
 
-# The downloader and wrapper share the host network. Readiness checks the
+# The downloader joins the wrapper's network namespace. Readiness checks the
 # wrapper-lite HTTP API, not merely whether the TCP port accepts connections.
 WRAPPER_LITE_PORT = 12340
 WRAPPER_STATUS_URL = f"http://127.0.0.1:{WRAPPER_LITE_PORT}/status"
+
+# The pinned image launches with --base-dir /data but checks its legacy nested
+# account path. Correct that check while preserving upstream's DNS and chroot
+# preparation. This changes only the container's temporary filesystem.
+WRAPPER_COMMAND = [
+    "sh", "-c",
+    'sed \'s|^TOKEN_DB_PATH=.*|TOKEN_DB_PATH="/app/rootfs/data/mpl_db/kvs.sqlitedb"|\' '
+    '/app/entrypoint.sh > /tmp/audora-wrapper-entrypoint.sh '
+    '&& exec sh /tmp/audora-wrapper-entrypoint.sh',
+]
 
 # How long a single liveness probe may take. This runs on the startup path,
 # so it must not add perceptible latency.
@@ -195,6 +205,7 @@ class WrapperManager:
             "image": WRAPPER_IMAGE,
             "name": WRAPPER_CONTAINER_NAME,
             "environment": environment,
+            "command": WRAPPER_COMMAND,
             "volumes": {data_path: {"bind": "/app/rootfs/data", "mode": "rw"}},
             # The wrapper binary is a launcher: it bind-mounts /dev/urandom,
             # chroots into ./rootfs, and execs the real decryptor inside. Both
@@ -202,12 +213,11 @@ class WrapperManager:
             # the container exits immediately ("mount /dev/urandom failed").
             # Upstream's own run instructions use --privileged for this reason.
             "privileged": True,
-            # network_mode="host" shares the host network namespace directly, so
-            # wrapper-lite's port 12340 is accessible on the host
-            # without explicit port bindings.  Passing both network_mode="host"
-            # AND a ports mapping causes a Docker APIError ("conflicting options:
-            # port publishing and the host network mode"), so we omit ports here.
-            "network_mode": "host",
+            # Publish to the local desktop backend without requiring Docker
+            # Desktop's optional host-network feature. The downloader joins
+            # this container's network namespace to reach the same service.
+            "network_mode": "bridge",
+            "ports": {"12340/tcp": ("127.0.0.1", WRAPPER_LITE_PORT)},
             "detach": True,
             "stdin_open": True,
             "tty": False,

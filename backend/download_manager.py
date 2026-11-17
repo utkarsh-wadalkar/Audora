@@ -3,7 +3,7 @@
 Docker invocation (verified in task.md):
   Album: audora-downloader <url>
   Song:  add --song
-  Network: host (to reach wrapper-lite HTTP on port 12340)
+  Network: wrapper container namespace (wrapper-lite HTTP on port 12340)
   Volume:  {downloads_path} -> /downloads
 
 Two stages, one job
@@ -173,7 +173,7 @@ class DownloadManager:
                     "mode": "ro",
                 },
             },
-            "network_mode": "host",
+            "network_mode": "container:audora-wrapper",
             "stdin_open": True,   # piped stdin prevents interactive retry loops
             "tty": False,
             "detach": True,

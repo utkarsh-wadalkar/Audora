@@ -7,7 +7,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth_manager  # noqa: E402
 from auth_manager import (  # noqa: E402
     TWOFA_FILENAME,
-    WRAPPER_BASE_SUBDIR,
     AuthManager,
 )
 
@@ -22,7 +21,7 @@ def _mgr(monkeypatch, data_dir):
 
 def _session_db(data_dir):
     """Path of the account store that proves a completed sign-in."""
-    return data_dir / WRAPPER_BASE_SUBDIR / "mpl_db" / "accounts.sqlitedb"
+    return data_dir / "mpl_db" / "accounts.sqlitedb"
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +164,7 @@ def test_is_logged_in_false_with_only_the_nested_directory(tmp_path, monkeypatch
     file, so status reported "Signed in" with no session at all.
     """
     data_dir = tmp_path / "dironly"
-    (data_dir / WRAPPER_BASE_SUBDIR).mkdir(parents=True)
+    (data_dir / "mpl_db").mkdir(parents=True)
 
     assert _mgr(monkeypatch, data_dir).is_logged_in() is False
 
@@ -173,7 +172,7 @@ def test_is_logged_in_false_with_only_the_nested_directory(tmp_path, monkeypatch
 def test_is_logged_in_false_with_only_provisioning_files(tmp_path, monkeypatch):
     """adi.pb / fsi.pdat appear on first run without any sign-in."""
     data_dir = tmp_path / "provisioned"
-    base = data_dir / WRAPPER_BASE_SUBDIR
+    base = data_dir
     base.mkdir(parents=True)
     for name in ("adi.pb", "fsi.pdat", "IC-Info.sids"):
         (base / name).write_text("x", encoding="utf-8")

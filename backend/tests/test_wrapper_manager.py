@@ -5,9 +5,8 @@ start. A fresh backend process starts with ``_ready = False`` and no log
 monitor, so a perfectly healthy container left over from a previous run was
 destroyed and rebuilt — killing any in-flight download with it.
 
-The fix is a TCP liveness probe: ``network_mode: "host"`` means the wrapper's
-ports are host ports, so a plain connect to ``127.0.0.1:<port>`` tells us
-whether the wrapper is actually serving. If it is, reuse it untouched.
+The wrapper publishes its HTTP service on ``127.0.0.1:12340``. A successful
+HTTP status response tells us whether it is serving. If so, reuse it untouched.
 
 All Docker interaction is mocked, so these run with no daemon and no
 ``docker`` python lib installed.
@@ -299,15 +298,16 @@ def test_wait_until_ready_succeeds_via_the_probe(monkeypatch, tmp_path):
 # Config invariants that must not regress (v1.3.1)
 # ---------------------------------------------------------------------------
 
-def test_base_config_keeps_privileged_and_host_network(monkeypatch, tmp_path):
+def test_base_config_publishes_wrapper_only_on_localhost(monkeypatch, tmp_path):
     manager, _docker_mgr = _make_mgr(monkeypatch, tmp_path)
     config = manager._base_config({})
 
     # The wrapper bind-mounts /dev/urandom and chroots; both need privileges.
     assert config["privileged"] is True
-    assert config["network_mode"] == "host"
-    # Docker rejects port publishing combined with host networking.
-    assert "ports" not in config
+    assert config["network_mode"] == "bridge"
+    # The desktop backend can reach the service without host networking.
+    assert config["ports"] == {"12340/tcp": ("127.0.0.1", 12340)}
+    assert "TOKEN_DB_PATH=\"/app/rootfs/data/mpl_db/kvs.sqlitedb\"" in config["command"][2]
     assert config["name"] == WRAPPER_CONTAINER_NAME
 
 

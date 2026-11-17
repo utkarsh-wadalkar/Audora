@@ -8,11 +8,9 @@ from logger import get_logger
 
 logger = get_logger("auth")
 
-# Session files currently live below this wrapper-owned directory. The 2FA
-# target is deliberately not derived from it: every wrapper run reports its
-# own exact code-file path, which WrapperManager parses and maps through the
-# configured Docker volume.
-WRAPPER_BASE_SUBDIR = os.path.join("data", "com.apple.android.music", "files")
+# wrapper-lite uses --base-dir /data, which is the root of the mounted volume.
+# The 2FA target is deliberately not derived from it: every wrapper run reports
+# its exact code-file path, which WrapperManager maps through that volume.
 
 # Name of the file the wrapper's -F/--code-from-file flag polls for.
 TWOFA_FILENAME = "2fa.txt"
@@ -45,14 +43,14 @@ class AuthManager:
         data_path = self._data_path()
         if not data_path:
             return ""
-        return os.path.join(data_path, WRAPPER_BASE_SUBDIR)
+        return data_path
 
     def twofa_path(self) -> str:
         """Host path parsed from the current wrapper container's own log."""
         return wrapper_mgr.get_twofa_host_path()
 
     def is_logged_in(self) -> bool:
-        """True only if a real session store exists in the wrapper's base dir.
+        """True only if a real session store exists in the mounted data dir.
 
         Previously this listed the volume root and counted any entry as a
         session, so the nested ``data/`` directory alone made it report "signed

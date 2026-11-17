@@ -332,16 +332,16 @@ def test_launch_passes_no_codec_flag(monkeypatch, tmp_path):
     assert "--atmos" not in captured["command"]
 
 
-def test_launch_keeps_host_networking(monkeypatch, tmp_path):
-    """Host networking is how the downloader reaches the wrapper ports."""
+def test_launch_joins_wrapper_network(monkeypatch, tmp_path):
+    """The downloader reaches wrapper-lite through the wrapper's namespace."""
     captured = _capture_container_config(monkeypatch, tmp_path)
     manager = download_manager.DownloadManager()
     monkeypatch.setattr(manager, "_stream_output", _noop_stream)
 
     _run(manager.start_download("https://music.apple.com/us/album/x/123"))
 
-    assert captured["network_mode"] == "host"
-    assert "ports" not in captured, "ports + host networking is rejected by Docker"
+    assert captured["network_mode"] == "container:audora-wrapper"
+    assert "ports" not in captured, "the downloader does not publish its own ports"
 
 
 # Docker Desktop discovery is covered in depth by test_docker_discovery.py,

@@ -14,7 +14,7 @@ CONTAINER_CONFIG_PATH = "/data/config.yaml"
 # Container-side root of the downloads bind mount.
 CONTAINER_DOWNLOADS = "/downloads"
 
-# The downloader reaches wrapper-lite over the shared host network.
+# The downloader reaches wrapper-lite in the wrapper's network namespace.
 LITE_SERVER_URL = "http://127.0.0.1:12340"
 
 # Quality ceilings. Audora always downloads the lossless ALAC source and then
