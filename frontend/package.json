@@ -10,12 +10,17 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "test:electron": "node --test electron/*.test.js",
+    "test:electron": "node --test electron/*.test.js scripts/build-all.test.cjs",
     "test:setup": "playwright test tests/setup-wizard.spec.ts",
     "smoke": "node electron/smoke-packaged.js",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "dist": "npm run build && electron-builder"
+    "electron:build": "npm run dist",
+    "dist": "node scripts/build-all.cjs"
+  },
+  "allowScripts": {
+    "electron": true,
+    "electron-winstaller": true,
+    "esbuild": true
   },
   "dependencies": {
     "react": "^18.2.0",

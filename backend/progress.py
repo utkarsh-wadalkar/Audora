@@ -17,8 +17,10 @@ from typing import Dict, Optional
 _TRACK_OF = re.compile(r"track\s+(\d+)\s+of\s+(\d+)", re.IGNORECASE)
 _PAREN_RATIO = re.compile(r"\((\d+)\s*/\s*(\d+)\)")
 _DOWNLOADING = re.compile(r"downloading[:\s]+(.+)", re.IGNORECASE)
-_COMPLETED = re.compile(r"(?:completed|downloaded|saved)[:\s]+(.+)", re.IGNORECASE)
-_FAILED = re.compile(r"(?:failed|error)[:\s]+(.+)", re.IGNORECASE)
+_COMPLETED = re.compile(r"^(?:completed|downloaded|saved)[:\s]+(.+)", re.IGNORECASE)
+_FAILED = re.compile(r"^(?:failed|error)[:\s]+(.+)", re.IGNORECASE)
+_SUMMARY = re.compile(r"Completed:\s*(\d+)\s*/\s*(\d+).*?Errors:\s*(\d+)", re.IGNORECASE)
+_RETRY_PROMPT = re.compile(r"^Error detected, press Enter to try again", re.IGNORECASE)
 
 
 def parse_line(line: str) -> Optional[Dict]:
@@ -29,6 +31,17 @@ def parse_line(line: str) -> Optional[Dict]:
     """
     if not line:
         return None
+
+    summary = _SUMMARY.search(line)
+    if summary:
+        return {
+            "terminal_summary": True,
+            "completed_count": int(summary.group(1)),
+            "total_tracks": int(summary.group(2)),
+            "failed_count": int(summary.group(3)),
+        }
+    if _RETRY_PROMPT.match(line):
+        return {"terminal_prompt": True}
 
     result: Dict = {}
 

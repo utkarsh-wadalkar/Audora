@@ -25,10 +25,13 @@ Audora's own player work.
 ffmpeg runs inside ``audora-downloader`` (see ``downloader_image``) so the user
 never installs anything.
 """
+import copy
+import io
 import os
 from typing import Callable, Dict, List, Optional, Sequence, Set
 
 from mutagen.flac import FLAC, Picture
+from PIL import Image, ImageOps
 
 from docker_manager import docker_mgr
 from downloader_image import AUDORA_DOWNLOADER_IMAGE
@@ -53,6 +56,12 @@ _MIN_PLAUSIBLE_FLAC_BYTES = 4096
 # Level 5 is ffmpeg's default: past it the encoder spends noticeably more CPU
 # for a fraction of a percent of size, which the user pays for as wait time.
 _FLAC_COMPRESSION_LEVEL = 5
+
+# Windows Explorer does not thumbnail the real-world >4 MiB pictures in the
+# user's FLAC files, even though Mutagen can read them. Keep each track's own
+# image but bound its embedded JPEG for thumbnailers.
+_MAX_EMBEDDED_ART_BYTES = 4 * 1024 * 1024
+_ART_MAX_SIDE = 1600
 
 
 def snapshot_sources(downloads_path: str) -> Set[str]:
@@ -130,6 +139,46 @@ def embed_album_cover_if_missing(track_path: str, cover_path: str) -> bool:
         return False
 
 
+def normalize_flac_artwork(track_path: str) -> bool:
+    """Shrink oversized embedded JPEGs without replacing track-specific art."""
+    try:
+        audio = FLAC(track_path)
+        pictures = list(audio.pictures)
+        changed = False
+        for index, picture in enumerate(pictures):
+            if len(picture.data) <= _MAX_EMBEDDED_ART_BYTES:
+                continue
+            if picture.mime != "image/jpeg" or not picture.data.startswith(b"\xff\xd8\xff"):
+                logger.warning(f"Oversized non-JPEG artwork kept in {track_path}")
+                return False
+            with Image.open(io.BytesIO(picture.data)) as original:
+                image = ImageOps.exif_transpose(original).convert("RGB")
+                image.thumbnail((_ART_MAX_SIDE, _ART_MAX_SIDE), Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                image.save(output, format="JPEG", quality=85, optimize=True)
+            data = output.getvalue()
+            if len(data) > _MAX_EMBEDDED_ART_BYTES:
+                logger.warning(f"Artwork remains too large after resizing: {track_path}")
+                return False
+            resized = copy.copy(picture)
+            resized.data = data
+            resized.width, resized.height = image.size
+            resized.depth = 24
+            resized.colors = 0
+            resized.type = 3
+            pictures[index] = resized
+            changed = True
+        if changed:
+            audio.clear_pictures()
+            for picture in pictures:
+                audio.add_picture(picture)
+            audio.save()
+        return True
+    except Exception as error:
+        logger.warning(f"Could not normalize FLAC artwork for {track_path}: {error}")
+        return False
+
+
 def _ffmpeg_command(container_source: str, container_target: str) -> List[str]:
     """ffmpeg arguments for a lossless ALAC -> FLAC transcode with tags + art.
 
@@ -201,6 +250,8 @@ def convert_one(source_path: str, downloads_path: str) -> bool:
         logger.error(f"Conversion produced an invalid FLAC for {os.path.basename(source_path)}")
         _discard_partial(target_path)
         return False
+
+    normalize_flac_artwork(target_path)
 
     try:
         os.remove(source_path)

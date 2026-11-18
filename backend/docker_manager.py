@@ -339,6 +339,23 @@ class DockerManager:
             logger.warning(f"Failed to stop {name}: {e}")
             return False
 
+    def send_container_input(self, name: str, value: str) -> bool:
+        """Write to a running container's stdin (used by the downloader retry prompt)."""
+        container = self.get_container(name)
+        if container is None:
+            return False
+        connection = None
+        try:
+            connection = container.attach_socket(params={"stdin": 1, "stream": 1})
+            connection.sendall(value.encode("utf-8"))
+            return True
+        except Exception as error:
+            logger.warning(f"Could not answer {name} prompt: {error}")
+            return False
+        finally:
+            if connection is not None:
+                connection.close()
+
     def stream_logs(self, container_id: str, follow: bool = True) -> Iterator[str]:
         """Yield decoded log lines from a container as they arrive."""
         client = self.get_client()

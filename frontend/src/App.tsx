@@ -34,13 +34,16 @@ function App() {
   // Fire a Windows notification whenever a download finishes.
   useWebSocket('/ws/progress', {
     onMessage: (data) => {
-      if (data?.status === 'completed' || data?.status === 'failed') {
-        const ok = data.status === 'completed';
+      if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'convert_failed') {
+        const partial = (data.converted || 0) > 0 && ((data.failed || 0) > 0 || data.status === 'convert_failed');
+        const ok = data.status === 'completed' && !data.failed;
         electronAPI.showNotification?.({
-          title: ok ? 'Download complete' : 'Download failed',
+          title: ok ? 'Download complete' : partial ? 'Some tracks are ready' : 'Download incomplete',
           body: ok
-            ? `${data.completed || 0} track(s) downloaded${data.failed ? `, ${data.failed} failed` : ''}.`
-            : `${data.failed || 0} track(s) failed. See Logs for details.`,
+            ? `${data.converted || 0} track(s) converted to FLAC.`
+            : data.status === 'convert_failed'
+            ? `${data.converted || 0} converted; ${data.convert_failed_tracks?.length || 0} could not be converted. See the download log.`
+            : `${data.converted || 0} FLAC ready; ${data.failed || 0} track(s) still need downloading.`,
         });
       }
     },

@@ -6,6 +6,7 @@ docker>=7.1.0
 sqlalchemy>=2.0.31
 aiofiles>=23.2.1
 mutagen>=1.47.0
+pillow>=11.0.0
 python-dotenv>=1.0.1
 websockets>=12.0
 pydantic>=2.7.4

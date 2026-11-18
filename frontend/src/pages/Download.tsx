@@ -56,7 +56,7 @@ export default function DownloadPage() {
         data?.status === 'convert_failed'
       ) {
         setIsDownloading(false);
-      } else if (data?.status === 'downloading' || data?.status === 'converting') {
+      } else if (data?.status === 'downloading' || data?.status === 'retrying' || data?.status === 'converting') {
         setIsDownloading(true);
       }
     },
@@ -110,15 +110,26 @@ export default function DownloadPage() {
       ? 'converting'
       : status === 'convert_failed'
       ? 'convert_failed'
+      : status === 'failed'
+      ? 'download_failed'
       : status === 'completed'
       ? 'ready'
-      : status === 'downloading'
+      : status === 'downloading' || status === 'retrying'
       ? 'downloading'
       : 'idle';
 
   const isConverting = stage === 'converting';
   const convertTotal = progress?.convert_total ?? 0;
   const converted = progress?.converted ?? 0;
+  const terminal = status === 'completed' || status === 'failed' || status === 'convert_failed';
+  const sameLink = url.trim() === progress?.url;
+  const retryKind = terminal && sameLink
+    ? status === 'convert_failed'
+      ? 'conversion'
+      : progress?.failed > 0 || status === 'failed'
+      ? 'download'
+      : null
+    : null;
 
   // Conversion shows a real converted/total percentage. Before ffmpeg has
   // reported anything countable there is no honest number, so the console runs
@@ -134,25 +145,35 @@ export default function DownloadPage() {
     : 0;
 
   const readoutTitle = isConverting
-    ? 'Converting to FLAC'
+    ? (converted > 0 ? 'Converting to FLAC' : 'Downloaded, preparing FLAC')
     : stage === 'convert_failed'
     ? 'Conversion failed'
     : stage === 'ready'
-    ? 'Ready to play'
+    ? progress?.failed > 0 ? 'Some tracks are ready' : 'FLAC conversion complete'
+    : stage === 'download_failed'
+    ? (converted > 0 ? 'Some tracks are ready' : 'Download failed')
+    : status === 'retrying'
+    ? 'Retrying missing tracks'
     : isDownloading
     ? progress?.track_name || 'Preparing'
     : 'No signal';
 
   const readoutDetail = isConverting
     ? convertTotal
-      ? `Track ${converted} of ${convertTotal}`
-      : 'Preparing lossless audio'
+      ? `${converted} of ${convertTotal} converted · ${Math.max(0, convertTotal - converted)} pending`
+      : 'Downloaded · FLAC conversion pending'
     : stage === 'convert_failed'
     ? progress?.convert_failed_tracks?.length
       ? `${progress.convert_failed_tracks.length} track(s) could not be converted`
       : 'Could not convert the download'
     : stage === 'ready'
-    ? 'Saved to your library'
+    ? convertTotal
+      ? `${converted} converted to FLAC${progress?.failed ? ` · ${progress.failed} need retry` : ' · saved to your library'}`
+      : 'No new tracks needed conversion'
+    : stage === 'download_failed'
+    ? `${converted} FLAC ready · ${progress?.failed || 0} download errors`
+    : status === 'retrying'
+    ? `Attempt ${progress?.retry_attempt || 1} of ${progress?.retry_limit || 2} · ${progress?.failed || 0} pending`
     : isDownloading
     ? `Track ${progress?.current_track || 0} of ${progress?.total_tracks || '?'}`
     : isValidUrl
@@ -174,6 +195,11 @@ export default function DownloadPage() {
           isIndeterminate={isIndeterminate}
           completed={progress?.completed || 0}
           failed={progress?.failed || 0}
+          converted={converted}
+          convertTotal={convertTotal}
+          retryKind={retryKind}
+          retryPrompt={Boolean(progress?.retry_prompt)}
+          retryAttempts={progress?.retry_attempts || 0}
           error={error}
           onDownload={handleDownload}
           onQueue={handleQueue}

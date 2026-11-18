@@ -41,6 +41,27 @@ class _FakeClient:
         return self._ping_result
 
 
+def test_send_container_input_writes_and_closes_socket(monkeypatch):
+    sent = []
+
+    class Socket:
+        def sendall(self, data):
+            sent.append(data)
+
+        def close(self):
+            sent.append("closed")
+
+    class Container:
+        def attach_socket(self, params):
+            assert params == {"stdin": 1, "stream": 1}
+            return Socket()
+
+    manager = DockerManager()
+    monkeypatch.setattr(manager, "get_container", lambda name: Container())
+    assert manager.send_container_input("audora-downloader", "\n") is True
+    assert sent == [b"\n", "closed"]
+
+
 # ---------------------------------------------------------------------------
 # pull_image_streaming
 # ---------------------------------------------------------------------------

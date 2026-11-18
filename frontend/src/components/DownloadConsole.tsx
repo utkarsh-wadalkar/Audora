@@ -1,7 +1,7 @@
 import { Download, X, ListPlus, Rss, Music4 } from 'lucide-react';
 
 /** The two real stages of a job, plus its terminal outcomes. */
-export type DownloadStage = 'idle' | 'downloading' | 'converting' | 'ready' | 'convert_failed';
+export type DownloadStage = 'idle' | 'downloading' | 'converting' | 'ready' | 'download_failed' | 'convert_failed';
 
 export interface DownloadConsoleProps {
   url: string;
@@ -24,6 +24,11 @@ export interface DownloadConsoleProps {
   isIndeterminate: boolean;
   completed: number;
   failed: number;
+  converted: number;
+  convertTotal: number;
+  retryKind: 'download' | 'conversion' | null;
+  retryPrompt: boolean;
+  retryAttempts: number;
   error: string;
   onDownload: () => void;
   onQueue: () => void;
@@ -53,6 +58,11 @@ export default function DownloadConsole({
   isIndeterminate,
   completed,
   failed,
+  converted,
+  convertTotal,
+  retryKind,
+  retryPrompt,
+  retryAttempts,
   error,
   onDownload,
   onQueue,
@@ -61,15 +71,19 @@ export default function DownloadConsole({
   const isConverting = stage === 'converting';
   const isReady = stage === 'ready';
   const convertFailed = stage === 'convert_failed';
+  const downloadFailed = stage === 'download_failed';
+  const partiallyReady = isReady && failed > 0;
 
   // The readout's mode label. Named for what is actually happening so the user
   // can tell a long conversion apart from a stalled download.
   const modeLabel = isConverting
     ? 'Converting'
     : isReady
-    ? 'Ready'
+    ? (partiallyReady ? 'Partially ready' : 'Ready')
     : convertFailed
     ? 'Conversion failed'
+    : downloadFailed
+    ? (converted > 0 ? 'Partially ready' : 'Download failed')
     : isDownloading
     ? 'Receiving'
     : 'Standby';
@@ -94,7 +108,7 @@ export default function DownloadConsole({
         </p>
         <p
           className={`mt-1.5 truncate font-mono text-base ${
-            convertFailed ? 'text-rose-300' : 'text-console-readoutText'
+            convertFailed || downloadFailed ? 'text-rose-300' : partiallyReady ? 'text-amber-300' : 'text-console-readoutText'
           }`}
         >
           {readoutTitle}
@@ -121,7 +135,7 @@ export default function DownloadConsole({
           ) : (
             <div
               className={`absolute top-2 h-1.5 rounded-full transition-[width] duration-500 ease-out ${
-                convertFailed ? 'bg-rose-400/70' : 'bg-console-readoutText/70'
+                convertFailed || downloadFailed ? 'bg-rose-400/70' : 'bg-console-readoutText/70'
               }`}
               style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
             />
@@ -143,9 +157,14 @@ export default function DownloadConsole({
           </div>
         </div>
 
-        {completed > 0 || failed > 0 ? (
+        {completed > 0 || failed > 0 || converted > 0 ? (
           <p className="mt-2 font-mono text-[10px] text-console-readoutText/70">
-            {completed} done{failed > 0 ? ` · ${failed} failed` : ''}
+            {stage === 'converting'
+              ? `${completed} downloaded · ${converted}/${convertTotal} converted`
+              : stage === 'ready' || stage === 'convert_failed'
+              ? `${completed} downloaded · ${converted} converted`
+              : `${completed} downloaded${converted > 0 ? ` · ${converted} converted` : ''}`}
+            {failed > 0 ? ` · ${failed} download errors` : ''}
           </p>
         ) : null}
       </div>
@@ -174,6 +193,25 @@ export default function DownloadConsole({
         </div>
       </div>
 
+      {retryKind && (
+        <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/[0.08] px-3.5 py-3 text-sm text-amber-100">
+          <p className="font-medium">
+            {retryKind === 'conversion'
+              ? 'Some tracks still need FLAC conversion.'
+              : `${failed || 'Some'} track${failed === 1 ? '' : 's'} could not be downloaded.`}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-amber-100/75">
+            {retryKind === 'conversion'
+              ? 'Retry will convert the remaining files. Your completed FLAC files are safe.'
+              : retryPrompt
+              ? retryAttempts > 0
+                ? `Audora retried ${retryAttempts} time${retryAttempts === 1 ? '' : 's'}. Retry here if the remaining tracks become available; saved files will be skipped.`
+                : 'Audora could not start the automatic retry. Retry here; saved files will be skipped.'
+              : 'Retry will skip tracks already saved and fetch the missing ones.'}
+          </p>
+        </div>
+      )}
+
       <div className="mt-auto space-y-2.5">
         {isDownloading ? (
           <button
@@ -188,7 +226,7 @@ export default function DownloadConsole({
             disabled={!isValidUrl}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-audora-500 px-4 py-3 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99] disabled:bg-white/[0.06] disabled:text-gray-500 disabled:shadow-none"
           >
-            <Download size={16} /> Download
+            <Download size={16} /> {retryKind === 'conversion' ? 'Retry conversion' : retryKind === 'download' ? 'Retry missing tracks' : 'Download'}
           </button>
         )}
         <button

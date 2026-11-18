@@ -178,10 +178,10 @@ def rescan_library_after_download(summary: dict) -> None:
     """Refresh the library as soon as a download's FLAC files are ready.
 
     Without this the user must press Rescan before a finished track appears,
-    which contradicts the "Ready to play -> Play" flow. Only a fully successful
-    run is scanned: a ``convert_failed`` run has no playable output to add.
+    which contradicts the "Ready to play -> Play" flow. A partial run can also
+    produce playable FLAC files, even when some tracks fail.
     """
-    if summary.get("status") != "completed":
+    if summary.get("status") != "completed" and not summary.get("converted", 0):
         return
     try:
         lib_mgr.scan_library()

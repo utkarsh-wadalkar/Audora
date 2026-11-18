@@ -77,7 +77,8 @@ def test_playlist_uses_each_song_metadata():
     yaml = pytest.importorskip("yaml")
     parsed = yaml.safe_load(downloader_config.build_config())
     assert parsed["metadata"]["tags"]["use-songinfo-for-playlist"] is True
-    assert parsed["metadata"]["artwork"]["dl-for-playlist"] is False
+    assert parsed["metadata"]["artwork"]["dl-for-playlist"] is True
+    assert parsed["metadata"]["artwork"]["size"] == "1600x1600"
 
 
 def test_config_never_fuses_keys_onto_one_line():

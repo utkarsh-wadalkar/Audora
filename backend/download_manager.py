@@ -17,6 +17,7 @@ reported as ``convert_failed``, never as success.
 """
 import asyncio
 import os
+import re
 from typing import Callable, Dict, List, Optional
 
 import downloader_config
@@ -60,6 +61,7 @@ class DownloadManager:
         self._downloads_path: Optional[str] = None
         self._sources_before: set = set()
         self._covers_before: set = set()
+        self._collection_folders: set = set()
 
     # --- Callback registration ---
     def register_progress_callback(self, cb: Callable[[dict], None]) -> None:
@@ -157,6 +159,7 @@ class DownloadManager:
         self._downloads_path = downloads_path
         self._sources_before = flac_converter.snapshot_sources(downloads_path)
         self._covers_before = self._sidecar_covers(downloads_path)
+        self._collection_folders = set()
 
         docker_downloads = windows_to_docker_path(downloads_path)
         docker_config = windows_to_docker_path(host_config_path)
@@ -212,6 +215,11 @@ class DownloadManager:
         completed = 0
         failed = 0
         cancelled = False
+        stop_failed = False
+        retry_prompt = False
+        retry_attempts = 0
+        max_auto_retries = 2
+        queue_labels: Optional[List[str]] = None
 
         loop = asyncio.get_event_loop()
 
@@ -242,6 +250,37 @@ class DownloadManager:
                     break
 
                 logger.info(f"[downloader] {line}")
+                stripped = line.strip()
+                if stripped.startswith("Queue ") and ": " in stripped:
+                    queue_labels = (
+                        [] if stripped.rsplit(": ", 1)[-1] in {"Playlist", "Album"}
+                        else None
+                    )
+                elif queue_labels is not None and stripped:
+                    queue_labels.append(stripped)
+                    if len(queue_labels) == 2:
+                        if self._downloads_path:
+                            alac_root = os.path.realpath(os.path.join(
+                                self._downloads_path, "ALAC"
+                            ))
+                            safe_labels = [
+                                re.sub(r'[<>:"/\\|?*]', "_", label).rstrip(" .")
+                                for label in queue_labels
+                            ]
+                            label_sets = [safe_labels]
+                            if all(
+                                "/" not in label and "\\" not in label
+                                and not os.path.splitdrive(label)[0]
+                                for label in queue_labels
+                            ):
+                                label_sets.append(queue_labels)
+                            for labels in label_sets:
+                                if any(label in {"", ".", ".."} for label in labels):
+                                    continue
+                                collection = os.path.realpath(os.path.join(alac_root, *labels))
+                                if os.path.commonpath((alac_root, collection)) == alac_root:
+                                    self._collection_folders.add(collection)
+                        queue_labels = None
                 parsed = progress_parser.parse_line(line)
                 if parsed:
                     current_track = parsed.get("current_track", current_track)
@@ -250,6 +289,49 @@ class DownloadManager:
                         track_name = parsed["track_name"]
                     completed += parsed.get("completed_delta", 0)
                     failed += parsed.get("failed_delta", 0)
+                    if parsed.get("terminal_summary"):
+                        completed = parsed["completed_count"]
+                        failed = parsed["failed_count"]
+
+                    if parsed.get("terminal_prompt"):
+                        retry_prompt = True
+                        if retry_attempts < max_auto_retries:
+                            retry_attempts += 1
+                            self._emit_progress({
+                                "type": "progress",
+                                "stage": STAGE_DOWNLOADING,
+                                "status": "retrying",
+                                "current_track": 0,
+                                "total_tracks": total_tracks,
+                                "completed": completed,
+                                "failed": failed,
+                                "retry_attempt": retry_attempts,
+                                "retry_limit": max_auto_retries,
+                            })
+                            if not self._is_running:
+                                cancelled = True
+                                break
+                            answered = await asyncio.to_thread(
+                                docker_mgr.send_container_input,
+                                DOWNLOADER_CONTAINER_NAME, "\n",
+                            )
+                            if not self._is_running:
+                                cancelled = True
+                                break
+                            if answered:
+                                current_track = 0
+                                continue
+                            retry_attempts -= 1
+                            logger.warning("Automatic downloader retry could not answer prompt")
+                        # A persistent failure, or an unavailable stdin, must
+                        # not hold conversion hostage indefinitely.
+                        stopped = await asyncio.to_thread(
+                            docker_mgr.stop_container, DOWNLOADER_CONTAINER_NAME, timeout=2
+                        )
+                        if not stopped:
+                            logger.error("Downloader ended at retry prompt but could not be stopped")
+                            stop_failed = True
+                        break
 
                 self._emit_progress(
                     {
@@ -276,9 +358,9 @@ class DownloadManager:
             # played back by Electron, so reporting success here would hand the
             # user a track that silently refuses to play.
             convert_result: Optional[Dict] = None
-            download_failed = bool(failed and not completed)
-            if not cancelled and not download_failed:
-                convert_result = await self._convert_to_flac(track_name)
+            download_failed = stop_failed or bool(failed and not completed)
+            if not cancelled and not stop_failed:
+                convert_result = await self._convert_to_flac(track_name, completed, failed)
                 if convert_result is not None:
                     self._remove_new_covers(convert_result["outputs"])
                 # cancel_download() clears _is_running, so losing it here means
@@ -308,6 +390,8 @@ class DownloadManager:
                 "total_tracks": total_tracks or current_track,
                 "completed": completed,
                 "failed": failed,
+                "retry_prompt": retry_prompt,
+                "retry_attempts": retry_attempts,
             }
             if convert_result is not None:
                 summary["converted"] = convert_result["converted"]
@@ -343,15 +427,50 @@ class DownloadManager:
             return "completed"
         return "completed" if convert_result["ok"] else "convert_failed"
 
-    async def _convert_to_flac(self, last_track_name: str) -> Optional[Dict]:
+    async def _convert_to_flac(
+        self, last_track_name: str, completed: int = 0, failed: int = 0,
+    ) -> Optional[Dict]:
         """Run the FLAC conversion stage, reporting real per-file progress."""
         downloads_path = self._downloads_path
         if not downloads_path:
             return None
 
-        new_sources = flac_converter.find_new_sources(downloads_path, self._sources_before)
+        new_sources = set(flac_converter.find_new_sources(downloads_path, self._sources_before))
+        alac_root = os.path.realpath(os.path.join(downloads_path, "ALAC"))
+        for folder in self._collection_folders:
+            real_folder = os.path.realpath(folder)
+            if (
+                os.path.commonpath((alac_root, real_folder)) != alac_root
+                or not os.path.isdir(real_folder)
+            ):
+                continue
+            for name in sorted(os.listdir(real_folder)):
+                if not name.lower().endswith(".flac"):
+                    continue
+                track = os.path.join(real_folder, name)
+                if (
+                    os.path.commonpath((real_folder, os.path.realpath(track))) == real_folder
+                    and flac_converter.is_valid_flac(track)
+                ):
+                    await asyncio.to_thread(flac_converter.normalize_flac_artwork, track)
+            for source in flac_converter.snapshot_sources(real_folder):
+                target = flac_converter.target_path_for(source)
+                if flac_converter.is_valid_flac(target):
+                    # A previous conversion may have kept its original when
+                    # Windows had the source open. Remove only a same-stem
+                    # source with an already validated FLAC in this collection.
+                    try:
+                        os.remove(source)
+                    except OSError as error:
+                        logger.warning(f"Could not remove redundant ALAC {source}: {error}")
+                else:
+                    new_sources.add(source)
+        new_sources = sorted(
+            path for path in new_sources
+            if not flac_converter.is_valid_flac(flac_converter.target_path_for(path))
+        )
         if not new_sources:
-            logger.info("No new ALAC files to convert")
+            logger.info("No unconverted ALAC files in this download")
             return None
 
         total = len(new_sources)
@@ -364,6 +483,9 @@ class DownloadManager:
                 "track_name": last_track_name,
                 "converted": 0,
                 "convert_total": total,
+                "completed": completed,
+                "failed": failed,
+                "download_error_count": failed,
                 "percent": 0,
             }
         )
@@ -377,6 +499,9 @@ class DownloadManager:
                     "track_name": name,
                     "converted": converted,
                     "convert_total": convert_total,
+                    "completed": completed,
+                    "failed": failed,
+                    "download_error_count": failed,
                     "percent": _ratio_percent(converted, convert_total),
                 }
             )
@@ -407,7 +532,7 @@ class DownloadManager:
             {"cover.jpg": 0, "cover.jpeg": 1, "cover.png": 2}[os.path.basename(item).lower()],
         )):
             if os.path.dirname(path) in completed_folders:
-                if url_kind(self._current_url or "") in {"album", "artist", "song"}:
+                if url_kind(self._current_url or "") in {"album", "artist", "song", "playlist"}:
                     folder_tracks = [
                         track for track in outputs
                         if os.path.dirname(os.path.abspath(track)) == os.path.dirname(path)

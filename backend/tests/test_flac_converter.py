@@ -273,6 +273,64 @@ def test_album_cover_fills_only_a_missing_flac_picture(monkeypatch, tmp_path):
     assert missing.pictures[0].mime == "image/jpeg"
 
 
+def test_oversized_track_art_is_scaled_for_windows_thumbnailers(monkeypatch):
+    import io
+    from PIL import Image
+    from mutagen.flac import Picture
+
+    image = Image.effect_noise((900, 900), 100).convert("RGB")
+    source = io.BytesIO()
+    image.save(source, format="JPEG", quality=95)
+    original = source.getvalue()
+    picture = Picture()
+    picture.mime = "image/jpeg"
+    picture.data = original
+    picture.width = picture.height = 900
+
+    class FakeFlac:
+        pictures = [picture]
+        saved = False
+
+        def clear_pictures(self):
+            self.pictures = []
+
+        def add_picture(self, value):
+            self.pictures.append(value)
+
+        def save(self):
+            self.saved = True
+
+    audio = FakeFlac()
+    monkeypatch.setattr(flac_converter, "FLAC", lambda _path: audio)
+    monkeypatch.setattr(flac_converter, "_MAX_EMBEDDED_ART_BYTES", len(original) - 1)
+    monkeypatch.setattr(flac_converter, "_ART_MAX_SIDE", 600)
+
+    assert flac_converter.normalize_flac_artwork("track.flac")
+    assert audio.saved
+    assert 0 < len(audio.pictures[0].data) < len(original)
+    assert audio.pictures[0].type == 3
+    with Image.open(io.BytesIO(audio.pictures[0].data)) as decoded:
+        assert decoded.size == (600, 600)
+
+
+def test_small_track_art_is_preserved_byte_for_byte(monkeypatch):
+    from mutagen.flac import Picture
+
+    picture = Picture()
+    picture.mime = "image/jpeg"
+    picture.data = b"small image"
+
+    class FakeFlac:
+        pictures = [picture]
+
+        def save(self):
+            raise AssertionError("Unchanged artwork should not be rewritten")
+
+    monkeypatch.setattr(flac_converter, "FLAC", lambda _path: FakeFlac())
+    assert flac_converter.normalize_flac_artwork("track.flac")
+    assert picture.data == b"small image"
+
+
 def test_cancellation_stops_between_files(monkeypatch, tmp_path):
 
     sources = [_make_source(tmp_path, f"{index}. Track.m4a") for index in range(3)]
