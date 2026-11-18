@@ -170,3 +170,11 @@ ipcMain.handle('select-folder', async () => {
   });
   return result.canceled ? null : result.filePaths[0] || null;
 });
+
+ipcMain.handle('adjust-zoom', (_event, steps) => {
+  if (!mainWindow || mainWindow.isDestroyed() || !Number.isInteger(steps)) return;
+  const change = Math.max(-3, Math.min(3, steps));
+  const contents = mainWindow.webContents;
+  const factor = Math.max(0.5, Math.min(3, contents.getZoomFactor() * 1.1 ** change));
+  contents.setZoomFactor(factor);
+});

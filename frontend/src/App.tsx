@@ -31,6 +31,24 @@ function App() {
     return () => clearInterval(id);
   }, [refreshStatus, checkSetup]);
 
+  useEffect(() => {
+    if (!electronAPI.adjustZoom) return;
+    let accumulated = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1);
+      accumulated += pixels;
+      const count = Math.min(3, Math.floor(Math.abs(accumulated) / 40));
+      if (!count) return;
+      const steps = -Math.sign(accumulated) * count;
+      accumulated += steps * 40;
+      void electronAPI.adjustZoom?.(steps);
+    };
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => window.removeEventListener('wheel', onWheel, { capture: true });
+  }, []);
+
   // Fire a Windows notification whenever a download finishes.
   useWebSocket('/ws/progress', {
     onMessage: (data) => {

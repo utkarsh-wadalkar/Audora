@@ -13,4 +13,5 @@ export const electronAPI: {
   openFolder?: (path: string) => Promise<void>;
   showNotification?: (opts: { title: string; body: string }) => Promise<void>;
   selectFolder?: () => Promise<string | null>;
+  adjustZoom?: (steps: number) => Promise<void>;
 } = (window as any).electronAPI || {};

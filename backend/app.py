@@ -7,6 +7,8 @@ from typing import List
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db, init_db
@@ -25,7 +27,8 @@ from library_manager import lib_mgr
 from queue_processor import queue_processor
 from setup_manager import setup_mgr
 from diagnostics import collect_diagnostics
-from models import DownloadHistory, QueueItem
+from models import DownloadHistory, QueueItem, Playlist, PlaylistEntry
+from playlists import playlist_data
 from schemas import (
     ApiResponse,
     LoginRequest,
@@ -448,6 +451,118 @@ def retry_history(item_id: int, db: Session = Depends(get_db)):
 
 
 # --- Library ---
+class PlaylistCreate(BaseModel):
+    name: str
+
+
+class PlaylistTrackAdd(BaseModel):
+    file_path: str
+
+
+class PlaylistReorder(BaseModel):
+    position: int  # zero-based position in the playlist
+
+
+@app.get("/playlists", response_model=ApiResponse)
+def list_playlists(db: Session = Depends(get_db)):
+    playlists = db.query(Playlist).order_by(func.lower(Playlist.name)).all()
+    library_tracks = lib_mgr.get_all_tracks()
+    return ApiResponse(success=True, data=[playlist_data(db, playlist, library_tracks) for playlist in playlists])
+
+
+@app.post("/playlists", response_model=ApiResponse)
+def create_playlist(payload: PlaylistCreate, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=422, detail="Playlist name must be 1–100 characters")
+    if db.query(Playlist).filter(func.lower(Playlist.name) == name.lower()).first():
+        raise HTTPException(status_code=409, detail="A playlist with this name already exists")
+    playlist = Playlist(name=name)
+    db.add(playlist)
+    db.commit()
+    db.refresh(playlist)
+    return ApiResponse(success=True, data=playlist_data(db, playlist, lib_mgr.get_all_tracks()))
+
+
+@app.delete("/playlists/{playlist_id}", response_model=ApiResponse)
+def delete_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    db.query(PlaylistEntry).filter_by(playlist_id=playlist_id).delete()
+    db.delete(playlist)
+    db.commit()
+    return ApiResponse(success=True)
+
+
+@app.patch("/playlists/{playlist_id}", response_model=ApiResponse)
+def rename_playlist(playlist_id: int, payload: PlaylistCreate, db: Session = Depends(get_db)):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    name = payload.name.strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=422, detail="Playlist name must be 1–100 characters")
+    existing = db.query(Playlist).filter(func.lower(Playlist.name) == name.lower()).first()
+    if existing and existing.id != playlist_id:
+        raise HTTPException(status_code=409, detail="A playlist with this name already exists")
+    playlist.name = name
+    db.commit()
+    return ApiResponse(success=True, data=playlist_data(db, playlist, lib_mgr.get_all_tracks()))
+
+
+@app.post("/playlists/{playlist_id}/tracks", response_model=ApiResponse)
+def add_playlist_track(playlist_id: int, payload: PlaylistTrackAdd, db: Session = Depends(get_db)):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if not os.path.isfile(payload.file_path) or not any(
+        track["file_path"] == payload.file_path for track in lib_mgr.get_all_tracks()
+    ):
+        raise HTTPException(status_code=404, detail="Track is not in the library")
+    existing = db.query(PlaylistEntry).filter_by(
+        playlist_id=playlist_id, file_path=payload.file_path
+    ).first()
+    if existing:
+        return ApiResponse(success=True, data=playlist_data(db, playlist, lib_mgr.get_all_tracks()))
+    last = db.query(func.max(PlaylistEntry.position)).filter_by(playlist_id=playlist_id).scalar() or 0
+    db.add(PlaylistEntry(playlist_id=playlist_id, file_path=payload.file_path, position=last + 1))
+    db.commit()
+    return ApiResponse(success=True, data=playlist_data(db, playlist, lib_mgr.get_all_tracks()))
+
+
+@app.delete("/playlists/{playlist_id}/tracks/{entry_id}", response_model=ApiResponse)
+def remove_playlist_track(playlist_id: int, entry_id: int, db: Session = Depends(get_db)):
+    entry = db.query(PlaylistEntry).filter_by(id=entry_id, playlist_id=playlist_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Playlist track not found")
+    db.delete(entry)
+    db.commit()
+    return ApiResponse(success=True)
+
+
+@app.patch("/playlists/{playlist_id}/tracks/{entry_id}", response_model=ApiResponse)
+def reorder_playlist_track(
+    playlist_id: int, entry_id: int, payload: PlaylistReorder, db: Session = Depends(get_db)
+):
+    playlist = db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    entries = db.query(PlaylistEntry).filter_by(playlist_id=playlist_id).order_by(
+        PlaylistEntry.position, PlaylistEntry.id
+    ).all()
+    source = next((index for index, entry in enumerate(entries) if entry.id == entry_id), -1)
+    if source < 0:
+        raise HTTPException(status_code=404, detail="Playlist track not found")
+    if payload.position < 0 or payload.position >= len(entries):
+        raise HTTPException(status_code=422, detail="Position is outside the playlist")
+    entries.insert(payload.position, entries.pop(source))
+    for position, entry in enumerate(entries, start=1):
+        entry.position = position
+    db.commit()
+    return ApiResponse(success=True, data=playlist_data(db, playlist, lib_mgr.get_all_tracks()))
+
+
 @app.get("/library", response_model=ApiResponse)
 def get_library():
     return ApiResponse(success=True, data=lib_mgr.get_all_tracks())

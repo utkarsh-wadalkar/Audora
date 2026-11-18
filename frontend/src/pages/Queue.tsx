@@ -51,7 +51,7 @@ export default function Queue() {
   return (
     <div className="animate-rise-in space-y-6 pt-2">
       <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Queue</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Download queue</h1>
         <span className="font-mono text-xs tabular-nums text-gray-500">
           {items.length} waiting
         </span>

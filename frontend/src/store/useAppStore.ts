@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
+import { restoreUpcoming, shuffleUpcoming } from '../lib/playbackOrder';
 
 export interface Track {
   id?: number;
@@ -74,6 +75,11 @@ interface AppState {
   currentTrack: Track | null;
   isPlaying: boolean;
   playbackQueue: Track[];
+  basePlaybackQueue: Track[];
+  playbackIndex: number;
+  playbackRequestId: number;
+  shuffleEnabled: boolean;
+  repeatMode: 'off' | 'all' | 'one';
 
   // Actions
   refreshStatus: () => Promise<void>;
@@ -90,6 +96,15 @@ interface AppState {
   playTracks: (tracks: Track[], startTrack?: Track) => void;
   playNext: () => boolean;
   playPrevious: () => boolean;
+  finishTrack: () => boolean;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
+  addPlayNext: (track: Track) => void;
+  addToPlaybackEnd: (track: Track) => void;
+  removeUpcoming: (index: number) => void;
+  moveUpcoming: (from: number, to: number) => void;
+  clearUpcoming: () => void;
+  playQueueIndex: (index: number) => void;
   setIsPlaying: (playing: boolean) => void;
 }
 
@@ -109,6 +124,11 @@ export const useAppStore = create<AppState>((set) => ({
   currentTrack: null,
   isPlaying: false,
   playbackQueue: [],
+  basePlaybackQueue: [],
+  playbackIndex: -1,
+  playbackRequestId: 0,
+  shuffleEnabled: false,
+  repeatMode: 'off',
 
   refreshStatus: async () => {
     try {
@@ -219,6 +239,10 @@ export const useAppStore = create<AppState>((set) => ({
         currentTrack: track,
         isPlaying: true,
         playbackQueue: isAlreadyQueued ? state.playbackQueue : [track],
+        basePlaybackQueue: isAlreadyQueued ? state.basePlaybackQueue : [track],
+        playbackIndex: isAlreadyQueued
+          ? state.playbackQueue.findIndex((queued) => sameTrack(queued, track)) : 0,
+        playbackRequestId: state.playbackRequestId + 1,
       };
     }),
   playTracks: (tracks, startTrack) => {
@@ -227,23 +251,30 @@ export const useAppStore = create<AppState>((set) => ({
       ? playableTracks.find((track) => sameTrack(track, startTrack))
       : undefined;
     const firstTrack = requestedStart ?? playableTracks[0] ?? null;
-    set({
-      playbackQueue: playableTracks,
+    set((state) => ({
+      playbackQueue: state.shuffleEnabled ? shuffleUpcoming(
+        [firstTrack, ...playableTracks.filter((track) => track !== firstTrack)].filter((track): track is Track => !!track), 0,
+      ) : playableTracks,
+      basePlaybackQueue: playableTracks,
+      playbackIndex: firstTrack ? (state.shuffleEnabled ? 0 : playableTracks.indexOf(firstTrack)) : -1,
+      playbackRequestId: state.playbackRequestId + 1,
       currentTrack: firstTrack,
       isPlaying: !!firstTrack,
-    });
+    }));
   },
   playNext: () => {
     let advanced = false;
     set((state) => {
       if (!state.currentTrack) return { isPlaying: false };
-      const index = state.playbackQueue.findIndex((track) =>
-        sameTrack(track, state.currentTrack as Track)
-      );
-      const nextTrack = index >= 0 ? state.playbackQueue[index + 1] : undefined;
-      if (!nextTrack) return { isPlaying: false };
+      const nextIndex = state.playbackIndex + 1;
+      const nextTrack = state.playbackQueue[nextIndex];
+      if (!nextTrack) {
+        if (state.repeatMode !== 'all' || !state.playbackQueue.length) return { isPlaying: false };
+        advanced = true;
+        return { currentTrack: state.playbackQueue[0], playbackIndex: 0, isPlaying: true };
+      }
       advanced = true;
-      return { currentTrack: nextTrack, isPlaying: true };
+      return { currentTrack: nextTrack, playbackIndex: nextIndex, isPlaying: true };
     });
     return advanced;
   },
@@ -251,15 +282,102 @@ export const useAppStore = create<AppState>((set) => ({
     let moved = false;
     set((state) => {
       if (!state.currentTrack) return {};
-      const index = state.playbackQueue.findIndex((track) =>
-        sameTrack(track, state.currentTrack as Track)
-      );
-      const previousTrack = index > 0 ? state.playbackQueue[index - 1] : undefined;
+      const previousTrack = state.playbackQueue[state.playbackIndex - 1];
       if (!previousTrack) return {};
       moved = true;
-      return { currentTrack: previousTrack, isPlaying: true };
+      return { currentTrack: previousTrack, playbackIndex: state.playbackIndex - 1, isPlaying: true };
     });
     return moved;
   },
+  finishTrack: () => {
+    let continuePlaying = false;
+    set((state) => {
+      if (!state.currentTrack) return { isPlaying: false };
+      if (state.repeatMode === 'one') {
+        continuePlaying = true;
+        return { isPlaying: true };
+      }
+      const nextIndex = state.playbackIndex + 1;
+      if (nextIndex < state.playbackQueue.length) {
+        continuePlaying = true;
+        return { currentTrack: state.playbackQueue[nextIndex], playbackIndex: nextIndex, isPlaying: true };
+      }
+      if (state.repeatMode !== 'all' || !state.playbackQueue.length) return { isPlaying: false };
+      continuePlaying = true;
+      const order = state.shuffleEnabled
+        ? shuffleUpcoming(state.playbackQueue, -1)
+        : [...state.playbackQueue];
+      if (order.length > 1 && sameTrack(order[0], state.currentTrack)) {
+        [order[0], order[1]] = [order[1], order[0]];
+      }
+      return { playbackQueue: order, currentTrack: order[0], playbackIndex: 0, isPlaying: true };
+    });
+    return continuePlaying;
+  },
+  toggleShuffle: () => set((state) => {
+    const shuffleEnabled = !state.shuffleEnabled;
+    return {
+      shuffleEnabled,
+      playbackQueue: shuffleEnabled
+        ? shuffleUpcoming(state.playbackQueue, state.playbackIndex)
+        : restoreUpcoming(state.playbackQueue, state.basePlaybackQueue, state.playbackIndex, sameTrack),
+    };
+  }),
+  cycleRepeat: () => set((state) => ({
+    repeatMode: state.repeatMode === 'off' ? 'all' : state.repeatMode === 'all' ? 'one' : 'off',
+  })),
+  addPlayNext: (track) => set((state) => {
+    if (track.id == null) return {};
+    if (!state.currentTrack) return {
+      currentTrack: track, isPlaying: true, playbackQueue: [track],
+      basePlaybackQueue: [track], playbackIndex: 0,
+    };
+    const queue = [...state.playbackQueue];
+    const laterIndex = queue.findIndex((item, index) => index > state.playbackIndex && sameTrack(item, track));
+    if (laterIndex >= 0) queue.splice(laterIndex, 1);
+    queue.splice(state.playbackIndex + 1, 0, track);
+    const basePlaybackQueue = [...state.basePlaybackQueue];
+    const baseCurrentIndex = basePlaybackQueue.findIndex((item) => sameTrack(item, state.currentTrack as Track));
+    const baseLaterIndex = basePlaybackQueue.findIndex((item, index) =>
+      index > baseCurrentIndex && sameTrack(item, track)
+    );
+    if (baseLaterIndex >= 0) basePlaybackQueue.splice(baseLaterIndex, 1);
+    basePlaybackQueue.splice(baseCurrentIndex + 1, 0, track);
+    return {
+      playbackQueue: queue,
+      basePlaybackQueue,
+    };
+  }),
+  addToPlaybackEnd: (track) => set((state) => {
+    if (track.id == null) return {};
+    if (!state.currentTrack) return {
+      currentTrack: track, isPlaying: true, playbackQueue: [track],
+      basePlaybackQueue: [track], playbackIndex: 0,
+    };
+    return {
+      playbackQueue: [...state.playbackQueue, track],
+      basePlaybackQueue: [...state.basePlaybackQueue, track],
+    };
+  }),
+  removeUpcoming: (index) => set((state) => {
+    if (index <= state.playbackIndex || index >= state.playbackQueue.length) return {};
+    const playbackQueue = [...state.playbackQueue];
+    playbackQueue.splice(index, 1);
+    return { playbackQueue };
+  }),
+  moveUpcoming: (from, to) => set((state) => {
+    if (from <= state.playbackIndex || to <= state.playbackIndex ||
+        from >= state.playbackQueue.length || to >= state.playbackQueue.length) return {};
+    const playbackQueue = [...state.playbackQueue];
+    playbackQueue.splice(to, 0, ...playbackQueue.splice(from, 1));
+    return { playbackQueue, basePlaybackQueue: [...playbackQueue] };
+  }),
+  clearUpcoming: () => set((state) => ({
+    playbackQueue: state.playbackQueue.slice(0, state.playbackIndex + 1),
+  })),
+  playQueueIndex: (index) => set((state) => {
+    if (index <= state.playbackIndex || index >= state.playbackQueue.length) return {};
+    return { currentTrack: state.playbackQueue[index], playbackIndex: index, playbackRequestId: state.playbackRequestId + 1, isPlaying: true };
+  }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
 }));

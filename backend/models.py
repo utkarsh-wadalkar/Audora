@@ -1,7 +1,7 @@
 """ORM models — mirrors the schema in Audora.md Section 8."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
 
 from database import Base
 
@@ -42,3 +42,21 @@ class LibraryTrack(Base):
     file_size = Column(Integer, default=0)
     format = Column(String, nullable=True)
     last_scanned = Column(DateTime, default=datetime.utcnow)
+
+
+class Playlist(Base):
+    __tablename__ = "playlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PlaylistEntry(Base):
+    __tablename__ = "playlist_entries"
+    __table_args__ = (UniqueConstraint("playlist_id", "file_path"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    playlist_id = Column(Integer, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)

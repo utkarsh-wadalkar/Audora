@@ -18,7 +18,7 @@ const primaryRoutes = [
   { to: '/', icon: Disc3, label: 'Listen' },
   { to: '/download', icon: DownloadCloud, label: 'Download' },
   { to: '/library', icon: Library, label: 'Library' },
-  { to: '/queue', icon: ListMusic, label: 'Queue' },
+  { to: '/queue', icon: ListMusic, label: 'Download queue' },
 ];
 
 const utilityRoutes = [
