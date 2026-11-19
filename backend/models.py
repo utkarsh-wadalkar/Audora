@@ -1,7 +1,7 @@
 """ORM models — mirrors the schema in Audora.md Section 8."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, Boolean
 
 from database import Base
 
@@ -60,3 +60,21 @@ class PlaylistEntry(Base):
     playlist_id = Column(Integer, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False, index=True)
     file_path = Column(String, nullable=False)
     position = Column(Integer, nullable=False)
+
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    file_path = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SmartPlaylist(Base):
+    __tablename__ = "smart_playlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)
+    artist_contains = Column(String, nullable=False, default="")
+    album_contains = Column(String, nullable=False, default="")
+    favorites_only = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

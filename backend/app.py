@@ -27,8 +27,9 @@ from library_manager import lib_mgr
 from queue_processor import queue_processor
 from setup_manager import setup_mgr
 from diagnostics import collect_diagnostics
-from models import DownloadHistory, QueueItem, Playlist, PlaylistEntry
+from models import DownloadHistory, QueueItem, Playlist, PlaylistEntry, Favorite, SmartPlaylist
 from playlists import playlist_data
+from library_features import read_lyrics, select_smart_tracks
 from schemas import (
     ApiResponse,
     LoginRequest,
@@ -451,6 +452,109 @@ def retry_history(item_id: int, db: Session = Depends(get_db)):
 
 
 # --- Library ---
+class SmartPlaylistInput(BaseModel):
+    name: str
+    artist_contains: str = ""
+    album_contains: str = ""
+    favorites_only: bool = False
+
+
+@app.get("/library/favorites", response_model=ApiResponse)
+def list_favorites(db: Session = Depends(get_db)):
+    return ApiResponse(success=True, data=[item.file_path for item in db.query(Favorite).all()])
+
+
+@app.put("/library/favorites/{track_id}", response_model=ApiResponse)
+def add_favorite(track_id: int, db: Session = Depends(get_db)):
+    track = lib_mgr.get_track_by_id(track_id)
+    if not track or not os.path.isfile(track["file_path"]):
+        raise HTTPException(status_code=404, detail="Track not found")
+    if db.get(Favorite, track["file_path"]) is None:
+        db.add(Favorite(file_path=track["file_path"]))
+        db.commit()
+    return ApiResponse(success=True)
+
+
+@app.delete("/library/favorites/{track_id}", response_model=ApiResponse)
+def remove_favorite(track_id: int, db: Session = Depends(get_db)):
+    track = lib_mgr.get_track_by_id(track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    item = db.get(Favorite, track["file_path"])
+    if item:
+        db.delete(item)
+        db.commit()
+    return ApiResponse(success=True)
+
+
+@app.get("/library/smart-playlists", response_model=ApiResponse)
+def list_smart_playlists(db: Session = Depends(get_db)):
+    favorites = {item.file_path for item in db.query(Favorite).all()}
+    tracks = lib_mgr.get_all_tracks()
+    return ApiResponse(success=True, data=[{
+        "id": rule.id, "name": rule.name,
+        "artist_contains": rule.artist_contains,
+        "album_contains": rule.album_contains,
+        "favorites_only": rule.favorites_only,
+        "tracks": select_smart_tracks(tracks, rule, favorites),
+    } for rule in db.query(SmartPlaylist).order_by(func.lower(SmartPlaylist.name)).all()])
+
+
+@app.post("/library/smart-playlists", response_model=ApiResponse)
+def create_smart_playlist(payload: SmartPlaylistInput, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=422, detail="Playlist name must be 1–100 characters")
+    if db.query(SmartPlaylist).filter(func.lower(SmartPlaylist.name) == name.lower()).first():
+        raise HTTPException(status_code=409, detail="A smart playlist with this name already exists")
+    if not (payload.artist_contains.strip() or payload.album_contains.strip() or payload.favorites_only):
+        raise HTTPException(status_code=422, detail="Choose at least one filter")
+    rule = SmartPlaylist(name=name, artist_contains=payload.artist_contains.strip(),
+                         album_contains=payload.album_contains.strip(), favorites_only=payload.favorites_only)
+    db.add(rule)
+    db.commit()
+    return list_smart_playlists(db)
+
+
+@app.patch("/library/smart-playlists/{playlist_id}", response_model=ApiResponse)
+def update_smart_playlist(playlist_id: int, payload: SmartPlaylistInput, db: Session = Depends(get_db)):
+    rule = db.get(SmartPlaylist, playlist_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Smart playlist not found")
+    name = payload.name.strip()
+    if not name or len(name) > 100:
+        raise HTTPException(status_code=422, detail="Playlist name must be 1–100 characters")
+    existing = db.query(SmartPlaylist).filter(func.lower(SmartPlaylist.name) == name.lower()).first()
+    if existing and existing.id != playlist_id:
+        raise HTTPException(status_code=409, detail="A smart playlist with this name already exists")
+    if not (payload.artist_contains.strip() or payload.album_contains.strip() or payload.favorites_only):
+        raise HTTPException(status_code=422, detail="Choose at least one filter")
+    rule.name = name
+    rule.artist_contains = payload.artist_contains.strip()
+    rule.album_contains = payload.album_contains.strip()
+    rule.favorites_only = payload.favorites_only
+    db.commit()
+    return list_smart_playlists(db)
+
+
+@app.delete("/library/smart-playlists/{playlist_id}", response_model=ApiResponse)
+def delete_smart_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    rule = db.get(SmartPlaylist, playlist_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Smart playlist not found")
+    db.delete(rule)
+    db.commit()
+    return ApiResponse(success=True)
+
+
+@app.get("/library/lyrics/{track_id}", response_model=ApiResponse)
+def get_track_lyrics(track_id: int):
+    track = lib_mgr.get_track_by_id(track_id)
+    if not track or not os.path.isfile(track["file_path"]):
+        raise HTTPException(status_code=404, detail="Track not found")
+    return ApiResponse(success=True, data=read_lyrics(track["file_path"]))
+
+
 class PlaylistCreate(BaseModel):
     name: str
 

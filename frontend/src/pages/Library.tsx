@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowUp, ArrowDown, Music, Search, RefreshCw, Play, ListPlus, ListMusic, Trash2, Plus, Pencil, Check, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, Music, Search, RefreshCw, Play, ListPlus, ListMusic, Trash2, Plus, Pencil, Check, X, Heart } from 'lucide-react';
 import { api, API_BASE } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import type { Track } from '../store/useAppStore';
 import { formatDuration } from '../lib/format';
 
-type Tab = 'tracks' | 'artists' | 'albums' | 'playlists';
+type Tab = 'tracks' | 'artists' | 'albums' | 'playlists' | 'favorites' | 'smart';
 type Sort = 'title' | 'artist' | 'album';
 
 interface AlbumGroup {
@@ -27,7 +27,16 @@ interface Playlist {
   tracks: PlaylistEntry[];
 }
 
-const TABS: Tab[] = ['tracks', 'artists', 'albums', 'playlists'];
+interface SmartPlaylist {
+  id: number;
+  name: string;
+  artist_contains: string;
+  album_contains: string;
+  favorites_only: boolean;
+  tracks: Track[];
+}
+
+const TABS: Tab[] = ['tracks', 'artists', 'albums', 'playlists', 'favorites', 'smart'];
 const naturalName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 function compareTracks(first: Track, second: Track, sort: Sort) {
@@ -75,15 +84,18 @@ function ArtworkTile({ trackId, showPlay = true }: { trackId?: number; showPlay?
   );
 }
 
-function TrackActions({ track, playlists, onPlayNext, onQueueLast, onAddToPlaylist }: {
+function TrackActions({ track, playlists, favorite, onToggleFavorite, onPlayNext, onQueueLast, onAddToPlaylist }: {
   track: Track;
   playlists: Playlist[];
+  favorite: boolean;
+  onToggleFavorite: (track: Track) => void;
   onPlayNext: (track: Track) => void;
   onQueueLast: (track: Track) => void;
   onAddToPlaylist: (playlistId: number, track: Track) => void;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-2">
+      <button onClick={() => onToggleFavorite(track)} title={favorite ? 'Remove from favorites' : 'Add to favorites'} aria-label={`${favorite ? 'Remove' : 'Add'} ${track.title || 'track'} ${favorite ? 'from' : 'to'} favorites`} className={favorite ? 'rounded-lg p-1.5 text-rose-400' : 'rounded-lg p-1.5 text-gray-500 hover:text-rose-300'}><Heart size={16} fill={favorite ? 'currentColor' : 'none'} /></button>
       <button onClick={() => onPlayNext(track)} title="Play next" aria-label={`Play ${track.title || 'track'} next`} className="rounded-lg p-1.5 text-gray-500 hover:bg-white/[0.08] hover:text-audora-300"><ListPlus size={16} /></button>
       <button onClick={() => onQueueLast(track)} title="Add to end of Up Next" aria-label={`Add ${track.title || 'track'} to queue`} className="rounded-lg p-1.5 text-gray-500 hover:bg-white/[0.08] hover:text-audora-300"><ListMusic size={16} /></button>
       <select
@@ -104,6 +116,13 @@ export default function Library() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [albums, setAlbums] = useState<AlbumGroup[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [smartPlaylists, setSmartPlaylists] = useState<SmartPlaylist[]>([]);
+  const [smartName, setSmartName] = useState('');
+  const [smartArtist, setSmartArtist] = useState('');
+  const [smartAlbum, setSmartAlbum] = useState('');
+  const [smartFavorites, setSmartFavorites] = useState(false);
+  const [editingSmartId, setEditingSmartId] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('tracks');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('title');
@@ -128,6 +147,10 @@ export default function Library() {
       ]);
       setTracks(tracksResponse.data.data || []);
       setAlbums(albumsResponse.data.data || []);
+      await Promise.all([
+        api.get('/library/favorites').then((response) => setFavorites(Array.isArray(response.data.data) ? response.data.data : [])),
+        api.get('/library/smart-playlists').then((response) => setSmartPlaylists(Array.isArray(response.data.data) ? response.data.data : [])),
+      ]).catch(() => {});
       try {
         const playlistsResponse = await api.get('/playlists');
         setPlaylists(playlistsResponse.data.data || []);
@@ -141,7 +164,60 @@ export default function Library() {
 
   useEffect(() => {
     load();
+    const refreshFavorites = () => {
+      void Promise.all([api.get('/library/favorites'), api.get('/library/smart-playlists')])
+        .then(([favoriteResponse, smartResponse]) => {
+          setFavorites(Array.isArray(favoriteResponse.data.data) ? favoriteResponse.data.data : []);
+          setSmartPlaylists(Array.isArray(smartResponse.data.data) ? smartResponse.data.data : []);
+        }).catch(() => {});
+    };
+    window.addEventListener('audora-favorites-changed', refreshFavorites);
+    return () => window.removeEventListener('audora-favorites-changed', refreshFavorites);
   }, []);
+
+  const toggleFavorite = async (track: Track) => {
+    if (!track.id) return;
+    try {
+      if (favorites.includes(track.file_path)) await api.delete(`/library/favorites/${track.id}`);
+      else await api.put(`/library/favorites/${track.id}`);
+      const [favoriteResponse, smartResponse] = await Promise.all([api.get('/library/favorites'), api.get('/library/smart-playlists')]);
+      setFavorites(Array.isArray(favoriteResponse.data.data) ? favoriteResponse.data.data : []);
+      setSmartPlaylists(Array.isArray(smartResponse.data.data) ? smartResponse.data.data : []);
+      window.dispatchEvent(new Event('audora-favorites-changed'));
+    } catch { setPlaylistError('Could not update favorites. Please try again.'); }
+  };
+
+  const saveSmartPlaylist = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPlaylistError('');
+    try {
+      const payload = {
+        name: smartName.trim(), artist_contains: smartArtist.trim(),
+        album_contains: smartAlbum.trim(), favorites_only: smartFavorites,
+      };
+      const response = editingSmartId == null
+        ? await api.post('/library/smart-playlists', payload)
+        : await api.patch(`/library/smart-playlists/${editingSmartId}`, payload);
+      setSmartPlaylists(Array.isArray(response.data.data) ? response.data.data : []);
+      setSmartName(''); setSmartArtist(''); setSmartAlbum(''); setSmartFavorites(false);
+      setEditingSmartId(null);
+    } catch (error: any) { setPlaylistError(error.response?.data?.detail || 'Could not create smart playlist.'); }
+  };
+
+  const editSmartPlaylist = (item: SmartPlaylist) => {
+    setEditingSmartId(item.id);
+    setSmartName(item.name);
+    setSmartArtist(item.artist_contains);
+    setSmartAlbum(item.album_contains);
+    setSmartFavorites(item.favorites_only);
+  };
+
+  const deleteSmartPlaylist = async (id: number) => {
+    try {
+      await api.delete(`/library/smart-playlists/${id}`);
+      setSmartPlaylists((items) => items.filter((item) => item.id !== id));
+    } catch { setPlaylistError('Could not delete smart playlist.'); }
+  };
 
   useEffect(() => {
     if (!playlistStatus) return;
@@ -309,7 +385,7 @@ export default function Library() {
                 <span className="block truncate text-sm text-gray-100">{entry.track?.title || entry.file_path.split(/[\\/]/).pop()}</span>
                 <span className="block truncate text-xs text-gray-500">{entry.track?.artist || 'File missing from library'}</span>
               </button>
-              {entry.track && <TrackActions track={entry.track} playlists={playlists} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />}
+              {entry.track && <TrackActions track={entry.track} playlists={playlists} favorite={favorites.includes(entry.track.file_path)} onToggleFavorite={toggleFavorite} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />}
               <button onClick={() => void movePlaylistTrack(openPlaylist.id, entry.entry_id, index - 1)} disabled={index === 0} aria-label={`Move ${entry.track?.title || 'track'} up`} className="p-1 text-gray-500 hover:text-gray-200 disabled:opacity-30"><ArrowUp size={14} /></button>
               <button onClick={() => void movePlaylistTrack(openPlaylist.id, entry.entry_id, index + 1)} disabled={index === openPlaylist.tracks.length - 1} aria-label={`Move ${entry.track?.title || 'track'} down`} className="p-1 text-gray-500 hover:text-gray-200 disabled:opacity-30"><ArrowDown size={14} /></button>
               <button onClick={() => void removeFromPlaylist(openPlaylist.id, entry.entry_id)} title="Remove from playlist; keep music file" aria-label={`Remove ${entry.track?.title || 'track'} from playlist`} className="p-1.5 text-gray-500 hover:text-rose-300"><Trash2 size={15} /></button>
@@ -369,7 +445,7 @@ export default function Library() {
                 <span className="block truncate text-xs text-gray-500">{track.artist || openAlbum.artist}</span>
               </button>
               <span className="shrink-0 font-mono text-xs text-gray-500">{formatDuration(track.duration)}</span>
-              <TrackActions track={track} playlists={playlists} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />
+              <TrackActions track={track} playlists={playlists} favorite={favorites.includes(track.file_path)} onToggleFavorite={toggleFavorite} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />
             </div>
           ))}
         </div>
@@ -438,7 +514,23 @@ export default function Library() {
       {playlistError && <p role="alert" className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{playlistError}</p>}
       {playlistStatus && <p role="status" className="text-xs text-audora-300">{playlistStatus}</p>}
 
-      {tab === 'playlists' ? (
+      {tab === 'smart' ? (
+        <div className="space-y-5">
+          <form onSubmit={saveSmartPlaylist} className="glass grid max-w-3xl gap-3 rounded-2xl p-4 sm:grid-cols-2">
+            <div className="sm:col-span-2"><h2 className="text-sm font-medium text-gray-100">{editingSmartId == null ? 'New' : 'Edit'} smart playlist</h2><p className="mt-1 text-xs text-gray-500">Matching tracks update as your library and favorites change. No files are copied.</p></div>
+            <input value={smartName} onChange={(event) => setSmartName(event.target.value)} maxLength={100} placeholder="Playlist name" aria-label="Smart playlist name" className="rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-sm text-gray-100" />
+            <input value={smartArtist} onChange={(event) => setSmartArtist(event.target.value)} placeholder="Artist contains…" aria-label="Artist filter" className="rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-sm text-gray-100" />
+            <input value={smartAlbum} onChange={(event) => setSmartAlbum(event.target.value)} placeholder="Album contains…" aria-label="Album filter" className="rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2 text-sm text-gray-100" />
+            <label className="flex items-center gap-2 text-sm text-gray-300"><input type="checkbox" checked={smartFavorites} onChange={(event) => setSmartFavorites(event.target.checked)} className="accent-audora-400" /> Favorites only</label>
+            <div className="flex gap-2 sm:col-span-2"><button type="submit" disabled={!smartName.trim() || !(smartArtist.trim() || smartAlbum.trim() || smartFavorites)} className="rounded-xl bg-audora-500 px-4 py-2 text-sm text-white disabled:opacity-40">{editingSmartId == null ? 'Create' : 'Save'} smart playlist</button>{editingSmartId != null && <button type="button" onClick={() => { setEditingSmartId(null); setSmartName(''); setSmartArtist(''); setSmartAlbum(''); setSmartFavorites(false); }} className="rounded-xl border border-white/[0.1] px-4 py-2 text-sm text-gray-300">Cancel</button>}</div>
+          </form>
+          {smartPlaylists.filter((item) => item.name.toLowerCase().includes(needle)).map((item) => <div key={item.id} className="glass rounded-2xl p-4">
+            <div className="relative z-10 flex items-center gap-3"><div className="min-w-0 flex-1"><h3 className="truncate text-sm font-medium text-gray-100">{item.name}</h3><p className="text-xs text-gray-500">{item.tracks.length} matching tracks · {item.artist_contains && `Artist: ${item.artist_contains} · `}{item.album_contains && `Album: ${item.album_contains} · `}{item.favorites_only && 'Favorites'}</p></div><button onClick={() => playTracks(item.tracks)} disabled={!item.tracks.length} aria-label={`Play ${item.name}`} className="rounded-full bg-audora-500 p-2 text-white disabled:opacity-40"><Play size={15} fill="currentColor" /></button><button onClick={() => editSmartPlaylist(item)} aria-label={`Edit ${item.name}`} className="text-gray-500 hover:text-gray-200"><Pencil size={16} /></button><button onClick={() => void deleteSmartPlaylist(item.id)} aria-label={`Delete ${item.name}`} className="text-gray-500 hover:text-rose-300"><Trash2 size={16} /></button></div>
+            <div className="relative z-10 mt-3 max-h-60 divide-y divide-white/[0.06] overflow-y-auto">{item.tracks.map((track) => <button key={track.file_path} onClick={() => playTracks(item.tracks, track)} className="flex w-full items-center justify-between gap-3 py-2 text-left text-xs text-gray-300 hover:text-white"><span className="truncate">{track.title || 'Unknown track'} <span className="text-gray-500">· {track.artist}</span></span><span className="shrink-0 text-gray-500">{formatDuration(track.duration)}</span></button>)}</div>
+          </div>)}
+          {!smartPlaylists.length && <p className="text-sm text-gray-500">Create a smart playlist from an artist, album, or your favorites.</p>}
+        </div>
+      ) : tab === 'playlists' ? (
         <div className="space-y-5">
           <form onSubmit={createPlaylist} className="flex max-w-lg gap-2">
             <input value={newPlaylistName} onChange={(event) => setNewPlaylistName(event.target.value)} maxLength={100} placeholder="New playlist name" aria-label="New playlist name" className="min-w-0 flex-1 rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-sm text-gray-100 outline-none focus:border-audora-400" />
@@ -458,24 +550,25 @@ export default function Library() {
         <p className="text-sm text-gray-500">
           Nothing here yet. Download an album and it will appear once scanned.
         </p>
-      ) : tab === 'tracks' ? (
+      ) : tab === 'tracks' || tab === 'favorites' ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
-          {filtered.map((track) => (
+          {(tab === 'favorites' ? filtered.filter((track) => favorites.includes(track.file_path)) : filtered).map((track) => (
             <div
               key={track.file_path}
               className="group min-w-0 max-w-[18rem] text-left"
             >
-              <button onClick={() => playTracks(filtered, track)} className="block w-full text-left" aria-label={`Play ${track.title || 'track'}`}>
+              <button onClick={() => playTracks(tab === 'favorites' ? filtered.filter((item) => favorites.includes(item.file_path)) : filtered, track)} className="block w-full text-left" aria-label={`Play ${track.title || 'track'}`}>
                 <ArtworkTile trackId={track.id} />
                 <p className="truncate text-sm font-medium text-gray-100">{track.title}</p>
                 <p className="truncate text-xs text-gray-500">{track.artist}</p>
               </button>
               <div className="mt-1 flex items-center justify-between gap-1">
                 <span className="font-mono text-[10px] tabular-nums text-gray-600">{formatDuration(track.duration)}</span>
-                <TrackActions track={track} playlists={playlists} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />
+                <TrackActions track={track} playlists={playlists} favorite={favorites.includes(track.file_path)} onToggleFavorite={toggleFavorite} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />
               </div>
             </div>
           ))}
+          {tab === 'favorites' && !filtered.some((track) => favorites.includes(track.file_path)) && <p className="text-sm text-gray-500">No favorite tracks yet. Use the heart beside a track or in the player.</p>}
         </div>
       ) : tab === 'artists' ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3">
