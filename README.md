@@ -31,13 +31,13 @@ You will need:
 ```text
 Windows
 └── Windows x64
-    └── Audora Setup 2.0.0.exe
+    └── Audora Setup 2.x.x.exe
 
 Linux
 ├── Ubuntu / Debian
-│   └── audora_2.0.0_amd64.deb
+│   └── audora_2.x.x_amd64.deb
 └── Other distros
-    └── Audora-2.0.0.AppImage
+    └── Audora-2.x.x.AppImage
 ```
 
 3. Save it somewhere easy to find (like your Desktop).
