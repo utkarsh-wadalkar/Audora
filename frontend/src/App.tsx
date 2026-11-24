@@ -63,15 +63,16 @@ function App() {
     enabled: setupComplete === true,
     onMessage: (data) => {
       if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'convert_failed') {
-        const partial = (data.converted || 0) > 0 && ((data.failed || 0) > 0 || data.status === 'convert_failed');
+        const verified = data.verified_files?.length ?? 0;
         const ok = data.status === 'completed' && !data.failed;
+        const partial = verified > 0 && !ok;
         electronAPI.showNotification?.({
           title: ok ? 'Download complete' : partial ? 'Some tracks are ready' : 'Download incomplete',
-          body: ok
-            ? `${data.converted || 0} track(s) converted to FLAC.`
+          body: data.file_error || (ok
+            ? `${verified} FLAC file(s) verified in your music folder.`
             : data.status === 'convert_failed'
             ? `${data.converted || 0} converted; ${data.convert_failed_tracks?.length || 0} could not be converted. See the download log.`
-            : `${data.converted || 0} FLAC ready; ${data.failed || 0} track(s) still need downloading.`,
+            : `${verified} FLAC file(s) verified. See the download result for details.`),
         });
       }
     },

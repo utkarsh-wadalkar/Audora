@@ -11,6 +11,7 @@ export const SPATIALIZER_CONTROLS = [
 export type SpatializerSettings = Record<(typeof SPATIALIZER_CONTROLS)[number]['key'], number>;
 
 export const DEFAULT_SPATIALIZER: SpatializerSettings = { size: 8, width: 10, wet: 4, dry: 5, damp: 5 };
+const ROOM_LEVEL = 0.7;
 
 export function readSpatializerSettings(saved?: Partial<SpatializerSettings>, legacyMix?: number) {
   const settings = { ...DEFAULT_SPATIALIZER };
@@ -59,13 +60,28 @@ function roomImpulse(context: BaseAudioContext, size: number) {
   const seconds = 0.07 * 5 ** (size / 8);
   const length = Math.floor(context.sampleRate * seconds);
   const impulse = context.createBuffer(2, length, context.sampleRate);
-  // Distinct, deterministic responses give the two channels different reflections.
+  const tailStart = Math.round(0.016 * context.sampleRate);
+  const tailLevel = 4 / Math.sqrt(length);
   for (let channel = 0; channel < 2; channel++) {
     const data = impulse.getChannelData(channel);
-    for (let sample = 0; sample < length; sample++) {
+    let seed = 0x6d2b79f5 + channel * 13579;
+    for (let sample = tailStart; sample < length; sample++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const decay = (1 - sample / length) ** 3;
-      data[sample] = Math.sin(sample * 1.37 + channel) * Math.sin(sample * 0.61 + channel * 2) * decay * 0.35;
+      data[sample] = (seed / 0x80000000 - 1) * decay * tailLevel;
     }
+    const reflections = channel === 0 ? [0.009, 0.017, 0.024] : [0.012, 0.019, 0.029];
+    const reflectionGains = [0.55, -0.34, 0.22];
+    for (const [index, delay] of reflections.entries()) {
+      const sample = Math.round(delay * context.sampleRate);
+      data[sample] += reflectionGains[index];
+    }
+
+    // Calibrate the reflected signal against the dry path. The convolver's
+    // default normalization can leave short room responses very quiet.
+    const energy = data.reduce((sum, value) => sum + value * value, 0);
+    const gain = ROOM_LEVEL / Math.sqrt(energy);
+    for (let sample = 0; sample < length; sample++) data[sample] *= gain;
   }
   return impulse;
 }
@@ -74,6 +90,7 @@ export function createSpatializer(context: BaseAudioContext, source: AudioNode, 
   const dry = context.createGain();
   const wet = context.createGain();
   const room = context.createConvolver();
+  room.normalize = false;
   const damping = context.createBiquadFilter();
   damping.type = 'lowpass';
   damping.Q.value = -3;
@@ -84,8 +101,11 @@ export function createSpatializer(context: BaseAudioContext, source: AudioNode, 
   let previousSize: number | undefined;
 
   return (enabled: boolean, settings: SpatializerSettings) => {
-    dry.gain.value = enabled ? settings.dry / 10 : 1;
-    wet.gain.value = enabled ? settings.wet / 10 : 0;
+    const dryLevel = enabled ? settings.dry / 10 : 1;
+    const wetLevel = enabled ? settings.wet / 10 : 0;
+    const headroom = Math.max(1, dryLevel + ROOM_LEVEL * wetLevel);
+    dry.gain.value = dryLevel / headroom;
+    wet.gain.value = wetLevel / headroom;
     if (!enabled) return;
 
     if (settings.size !== previousSize) {

@@ -6,6 +6,7 @@ fresh config there before each run so save paths and wrapper-lite agree.
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -227,6 +228,7 @@ def _capture_container_config(monkeypatch, tmp_path):
         return _FakeContainer()
 
     monkeypatch.setattr(download_manager.docker_mgr, "start_container", fake_start)
+    monkeypatch.setattr(download_manager, "docker_sees_folder", lambda _: True)
     monkeypatch.setattr(
         download_manager,
         "get_settings",
@@ -234,6 +236,31 @@ def _capture_container_config(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(download_manager, "CONFIG_DIR", str(tmp_path / "cfg"))
     return captured
+
+
+def test_download_uses_verified_staging_when_library_mount_does_not_match(monkeypatch, tmp_path):
+    captured = _capture_container_config(monkeypatch, tmp_path)
+    library = tmp_path / "Selected library"
+    library.mkdir()
+    monkeypatch.setattr(download_manager, "get_settings", lambda: {
+        "library_path": str(library), "downloads_path": str(tmp_path / "old folder"),
+    })
+    checked = []
+
+    def verify(folder):
+        checked.append(folder)
+        return folder != str(library)
+
+    monkeypatch.setattr(download_manager, "docker_sees_folder", verify)
+    manager = download_manager.DownloadManager()
+    monkeypatch.setattr(manager, "_stream_output", _noop_stream)
+
+    assert _run(manager.start_download("https://music.apple.com/us/album/x/123"))
+    assert checked[0] == str(library)
+    assert Path(checked[1]).parent == tmp_path / "cfg" / "staging"
+    mount = next(source for source, options in captured["volumes"].items() if options["bind"] == "/downloads")
+    assert mount == Path(checked[1]).as_posix()
+    assert manager._library_path == str(library)
 
 
 def test_launch_does_not_override_working_dir(monkeypatch, tmp_path):

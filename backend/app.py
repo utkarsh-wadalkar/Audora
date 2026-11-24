@@ -187,7 +187,7 @@ def rescan_library_after_download(summary: dict) -> None:
     which contradicts the "Ready to play -> Play" flow. A partial run can also
     produce playable FLAC files, even when some tracks fail.
     """
-    if summary.get("status") != "completed" and not summary.get("converted", 0):
+    if summary.get("status") != "completed" and not summary.get("verified_files"):
         return
     try:
         lib_mgr.scan_library()
@@ -365,8 +365,13 @@ async def start_download(req: DownloadRequest):
     return ApiResponse(
         success=success,
         data={"started": success},
-        error=None if success else "Failed to start download",
+        error=None if success else dl_mgr.start_error or "Failed to start download",
     )
+
+
+@app.get("/download/result", response_model=ApiResponse)
+def last_download_result():
+    return ApiResponse(success=True, data=dl_mgr.last_summary)
 
 
 @app.post("/download/cancel", response_model=ApiResponse)

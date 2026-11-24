@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { api } from '../api/client';
+import { useEffect, useState, useRef } from 'react';
+import { api, electronAPI } from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAppStore } from '../store/useAppStore';
 import DownloadConsole, { type DownloadStage } from '../components/DownloadConsole';
@@ -26,6 +26,15 @@ export default function DownloadPage() {
 
   // Monotonic id so append-only lines get stable React keys.
   const nextLineId = useRef(0);
+  const receivedProgress = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/download/result').then(({ data }) => {
+      if (active && !receivedProgress.current) setProgress(data.data ?? null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const addToQueue = useAppStore((s) => s.addToQueue);
 
@@ -46,6 +55,7 @@ export default function DownloadPage() {
 
   useWebSocket('/ws/progress', {
     onMessage: (data) => {
+      receivedProgress.current = true;
       setProgress(data);
       // "converting" is still an active job — the transport stays in its
       // stop-able state so a long conversion cannot look finished or stuck.
@@ -70,6 +80,7 @@ export default function DownloadPage() {
       return;
     }
     setError('');
+    receivedProgress.current = true;
     setIsDownloading(true);
     setLogLines([]);
     setProgress(null);
@@ -121,7 +132,8 @@ export default function DownloadPage() {
   const isConverting = stage === 'converting';
   const convertTotal = progress?.convert_total ?? 0;
   const converted = progress?.converted ?? 0;
-  const terminal = status === 'completed' || status === 'failed' || status === 'convert_failed';
+  const terminal = status === 'completed' || status === 'failed' || status === 'convert_failed' || status === 'cancelled';
+  const verifiedFiles: string[] = progress?.verified_files ?? [];
   const sameLink = url.trim() === progress?.url;
   const retryKind = terminal && sameLink
     ? status === 'convert_failed'
@@ -207,12 +219,33 @@ export default function DownloadPage() {
         />
       </div>
 
-      <LogTerminal
-        title="Download log"
-        lines={logLines}
-        idleHint="waiting for a download to start"
-        className="min-w-0 flex-1"
-      />
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {terminal && progress?.destination && (
+          <section aria-label="Download result" className="glass relative max-h-[45%] shrink-0 space-y-2 overflow-auto rounded-2xl p-4 text-sm">
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
+              <p role="status">{verifiedFiles.length} FLAC {verifiedFiles.length === 1 ? 'file' : 'files'} verified in your music folder</p>
+              {electronAPI.openFolder && (
+                <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 hover:bg-white/10"
+                  onClick={() => void electronAPI.openFolder?.(progress.destination)}>
+                  Open music folder
+                </button>
+              )}
+            </div>
+            <p className="relative z-10 break-all font-mono text-xs text-gray-300">{progress.destination}</p>
+            {progress.file_error && <p role="alert" className="relative z-10 text-rose-300">{progress.file_error}</p>}
+            {verifiedFiles.length > 0 && (
+              <details className="relative z-10 text-xs text-gray-300">
+                <summary className="cursor-pointer">Show file paths</summary>
+                <ul className="mt-2 space-y-1">
+                  {verifiedFiles.map((path) => <li key={path} className="break-all font-mono">{path}</li>)}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
+        <LogTerminal title="Download log" lines={logLines}
+          idleHint="waiting for a download to start" className="min-h-0 min-w-0 flex-1" />
+      </div>
     </div>
   );
 }

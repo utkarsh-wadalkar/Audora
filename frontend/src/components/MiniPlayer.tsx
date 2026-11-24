@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Shuffle, Repeat, Repeat1, ListMusic, X, ArrowUp, ArrowDown, Heart, Mic2, SlidersHorizontal } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { api, API_BASE } from '../api/client';
@@ -31,6 +31,8 @@ export default function MiniPlayer() {
   const rafRef = useRef<number | null>(null);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const seekPointer = useRef<number | null>(null);
   const [volume, setVolume] = useState(0.8);
   const [showUpNext, setShowUpNext] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
@@ -76,6 +78,8 @@ export default function MiniPlayer() {
 
   // Load a new stream. A natural queue transition may overlap both streams.
   useEffect(() => {
+    seekPointer.current = null;
+    setSeekPreview(null);
     setPosition(0);
     setDuration(0);
     setAudioError('');
@@ -167,12 +171,12 @@ export default function MiniPlayer() {
     setIsPlaying(!isPlaying);
   };
 
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    audioEngine.seek(ratio * duration);
-    setPosition(ratio * duration);
+  const seekTo = (seconds: number) => {
+    const trackDuration = audioEngine.duration;
+    if (!Number.isFinite(seconds) || !Number.isFinite(trackDuration) || trackDuration <= 0) return;
+    const target = Math.max(0, Math.min(trackDuration, seconds));
+    audioEngine.seek(target);
+    setPosition(target);
   };
 
   const changeVolume = (v: number) => {
@@ -199,7 +203,8 @@ export default function MiniPlayer() {
     }
   };
 
-  const progressPct = duration ? (position / duration) * 100 : 0;
+  const canSeek = Boolean(currentTrack) && Number.isFinite(duration) && duration > 0;
+  const seekPosition = canSeek ? Math.max(0, Math.min(duration, seekPreview ?? position)) : 0;
   const hasPrevious = playbackIndex > 0 || !!currentTrack;
   const hasNext = playbackIndex >= 0 && (playbackIndex < playbackQueue.length - 1 || repeatMode === 'all');
 
@@ -298,16 +303,46 @@ export default function MiniPlayer() {
           <button onClick={() => navigate('/audio-effects')} title="Audio effects" aria-label="Open audio effects" className="text-gray-500 hover:text-gray-200"><SlidersHorizontal size={16} /></button>
         </div>
         <div className="flex w-full items-center gap-2.5 font-mono text-[10px] tabular-nums text-gray-500">
-          <span>{formatDuration(position)}</span>
-          <div
-            className="group/seek relative h-1 flex-1 cursor-pointer rounded-full bg-white/[0.09]"
-            onClick={seek}
-          >
-            <div
-              className="h-full rounded-full bg-audora-400 transition-[width] duration-150 ease-out"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
+          <span>{formatDuration(seekPosition)}</span>
+          <input
+            type="range"
+            min={0}
+            max={canSeek ? duration : 1}
+            step="any"
+            value={seekPosition}
+            disabled={!canSeek}
+            aria-label="Seek"
+            aria-valuetext={`${formatDuration(seekPosition)} of ${formatDuration(duration)}`}
+            className="player-seek min-w-0 flex-1"
+            style={{ '--seek-ratio': canSeek ? seekPosition / duration : 0 } as CSSProperties}
+            onPointerDown={(event) => {
+              if (!event.isPrimary || event.button !== 0) return;
+              seekPointer.current = event.pointerId;
+              setSeekPreview(event.currentTarget.valueAsNumber);
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onChange={(event) => {
+              const next = event.currentTarget.valueAsNumber;
+              if (seekPointer.current === null) seekTo(next);
+              else setSeekPreview(next);
+            }}
+            onPointerUp={(event) => {
+              if (seekPointer.current !== event.pointerId) return;
+              seekPointer.current = null;
+              setSeekPreview(null);
+              seekTo(event.currentTarget.valueAsNumber);
+            }}
+            onLostPointerCapture={(event) => {
+              if (seekPointer.current !== event.pointerId) return;
+              seekPointer.current = null;
+              setSeekPreview(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              seekTo(audioEngine.position + (event.key === 'ArrowRight' ? 5 : -5));
+            }}
+          />
           <span>{formatDuration(duration)}</span>
         </div>
       </div>

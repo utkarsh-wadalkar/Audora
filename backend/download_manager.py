@@ -16,11 +16,13 @@ Chromium — and therefore Electron — has no ALAC decoder and could never play
 reported as ``convert_failed``, never as success.
 """
 import asyncio
+import hashlib
 import os
 import re
 from typing import Callable, Dict, List, Optional
 
 import downloader_config
+from download_storage import docker_sees_folder, verify_download_files
 import flac_converter
 from docker_manager import docker_mgr
 from downloader_image import AUDORA_DOWNLOADER_IMAGE
@@ -52,6 +54,7 @@ class DownloadManager:
         self._container_id: Optional[str] = None
         self._current_url: Optional[str] = None
         self._is_running = False
+        self._download_task: Optional[asyncio.Task] = None
         self._progress_callbacks: List[Callable[[dict], None]] = []
         # Called with a summary dict when a download finishes (for history/queue).
         self._completion_callbacks: List[Callable[[dict], None]] = []
@@ -59,6 +62,8 @@ class DownloadManager:
         # Set at the start of each run so the conversion stage knows which files
         # this download produced, and where they live.
         self._downloads_path: Optional[str] = None
+        self._library_path: Optional[str] = None
+        self.start_error: Optional[str] = None
         self._sources_before: set = set()
         self._covers_before: set = set()
         self._collection_folders: set = set()
@@ -95,6 +100,10 @@ class DownloadManager:
     def is_running(self) -> bool:
         return self._is_running
 
+    @property
+    def last_summary(self) -> Optional[dict]:
+        return None if self._is_running else self._last_summary
+
     # --- Command construction ---
     def _build_command(self, url: str) -> List[str]:
         """Downloader arguments for ``url``.
@@ -116,27 +125,51 @@ class DownloadManager:
     # --- Lifecycle ---
     async def start_download(self, url: str) -> bool:
         url = url.strip()
-        if self._is_running:
+        if self._is_running or (self._download_task is not None and not self._download_task.done()):
+            self.start_error = "Wait for the current download to finish or stop, then retry."
             logger.warning("A download is already running")
             return False
+        self.start_error = None
+        self._last_summary = None
         if not validate_apple_music_url(url):
             logger.error(f"Invalid Apple Music URL: {url}")
             return False
 
         settings = get_settings()
-        downloads_path = settings.get("library_path") or settings.get("downloads_path")
+        library_path = settings.get("library_path") or settings.get("downloads_path")
 
         try:
-            os.makedirs(downloads_path, exist_ok=True)
+            if settings.get("library_path") and not os.path.isdir(library_path):
+                raise FileNotFoundError(library_path)
+            os.makedirs(library_path, exist_ok=True)
         except OSError as e:
-            logger.error(f"Cannot create downloads folder {downloads_path}: {e}")
+            self.start_error = f"Audora couldn’t open {library_path}. Reconnect the drive or choose another music folder in Settings."
+            logger.error(f"Cannot create downloads folder {library_path}: {e}")
             return False
+
+        downloads_path = library_path
+        if not docker_sees_folder(library_path):
+            key = hashlib.sha256(f"{library_path}\n{url}".encode()).hexdigest()
+            downloads_path = os.path.join(CONFIG_DIR, "staging", key)
+            try:
+                os.makedirs(downloads_path, exist_ok=True)
+                staging_accessible = docker_sees_folder(downloads_path)
+            except OSError:
+                staging_accessible = False
+            if not staging_accessible:
+                self.start_error = (
+                    "Docker couldn’t verify the music folder or Audora’s local staging folder. "
+                    "Check that the drive is connected and available in Docker Desktop, "
+                    "or choose another music folder in Settings."
+                )
+                return False
+            logger.info("Docker could not see the music folder. Using Audora staging before saving to %s", library_path)
 
         # Guard against a full disk before we bother spawning a container.
         try:
             import shutil as _shutil
 
-            free = _shutil.disk_usage(downloads_path).free
+            free = min(_shutil.disk_usage(folder).free for folder in {downloads_path, library_path})
             if free < 200 * 1024 * 1024:  # < 200 MB
                 logger.error(
                     f"Not enough disk space in {downloads_path} "
@@ -157,6 +190,7 @@ class DownloadManager:
         # Snapshot the existing ALAC files so the conversion stage can identify
         # exactly what this run produced (see flac_converter.snapshot_sources).
         self._downloads_path = downloads_path
+        self._library_path = library_path
         self._sources_before = flac_converter.snapshot_sources(downloads_path)
         self._covers_before = self._sidecar_covers(downloads_path)
         self._collection_folders = set()
@@ -193,8 +227,8 @@ class DownloadManager:
         self._container_id = container.id
         self._current_url = url
         self._is_running = True
-        logger.info(f"Download started for {url}")
-        asyncio.create_task(self._stream_output())
+        logger.info(f"Download started for {url}. Music folder: {library_path}")
+        self._download_task = asyncio.create_task(self._stream_output())
         return True
 
     async def cancel_download(self) -> bool:
@@ -220,6 +254,7 @@ class DownloadManager:
         retry_attempts = 0
         max_auto_retries = 2
         queue_labels: Optional[List[str]] = None
+        track_stems: set[str] = set()
 
         loop = asyncio.get_event_loop()
 
@@ -251,6 +286,8 @@ class DownloadManager:
 
                 logger.info(f"[downloader] {line}")
                 stripped = line.strip()
+                if re.match(r"^\d+\. ", stripped):
+                    track_stems.add(re.sub(r'[<>:"/\\|?*]', "_", stripped).casefold())
                 if stripped.startswith("Queue ") and ": " in stripped:
                     queue_labels = (
                         [] if stripped.rsplit(": ", 1)[-1] in {"Playlist", "Album"}
@@ -360,17 +397,40 @@ class DownloadManager:
             convert_result: Optional[Dict] = None
             download_failed = stop_failed or bool(failed and not completed)
             if not cancelled and not stop_failed:
-                convert_result = await self._convert_to_flac(track_name, completed, failed)
-                if convert_result is not None:
-                    self._remove_new_covers(convert_result["outputs"])
+                try:
+                    convert_result = await self._convert_to_flac(track_name, completed, failed)
+                    if convert_result is not None:
+                        self._remove_new_covers(convert_result["outputs"])
+                except OSError as error:
+                    logger.warning("Download conversion could not access its files: %s", error)
+                    download_failed = True
                 # cancel_download() clears _is_running, so losing it here means
                 # the user stopped the job mid-conversion rather than a track
                 # having failed to convert.
                 if not self._is_running:
                     cancelled = True
 
+            verified_files = []
+            file_error = None
+            if self._library_path and not cancelled:
+                try:
+                    verified_files = await asyncio.to_thread(
+                        verify_download_files, self._downloads_path, self._library_path,
+                        self._collection_folders, (convert_result or {}).get("outputs", []), track_stems,
+                    )
+                except OSError as error:
+                    logger.warning("Could not save FLAC files to the music folder: %s", error)
+                    file_error = "Reconnect the music drive or check free space, then retry the download."
+                if not file_error and (not verified_files or len(verified_files) < completed):
+                    file_error = "Some reported tracks couldn’t be verified in the music folder. Retry the download."
+                if file_error:
+                    logger.warning("%s Destination: %s", file_error, self._library_path)
+                if not self._is_running:
+                    cancelled = True
             self._is_running = False
             status = self._final_status(cancelled, download_failed, convert_result)
+            if file_error and status == "completed":
+                status = "failed"
             summary = {
                 "type": "progress",
                 # The stage a terminal event belongs to: a finished job is
@@ -392,6 +452,9 @@ class DownloadManager:
                 "failed": failed,
                 "retry_prompt": retry_prompt,
                 "retry_attempts": retry_attempts,
+                "destination": self._library_path,
+                "verified_files": verified_files,
+                "file_error": file_error,
             }
             if convert_result is not None:
                 summary["converted"] = convert_result["converted"]

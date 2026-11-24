@@ -64,6 +64,87 @@ def test_nothing_downloaded_is_still_completed():
     assert _resolve(False, False, _convert(False, 0, 0)) == "completed"
 
 
+def test_container_already_exists_requires_a_verified_host_file(monkeypatch, tmp_path):
+    manager = download_manager.DownloadManager()
+    manager._downloads_path = str(tmp_path)
+    manager._library_path = str(tmp_path)
+    collection = tmp_path / "ALAC" / "Apple Music" / "Playlist"
+    collection.mkdir(parents=True)
+    (collection / "02. Unrelated.flac").write_bytes(b"fLaC" + b"0" * 8192)
+    monkeypatch.setattr(download_manager.docker_mgr, "stream_logs", lambda *_a, **_kw: iter([
+        "Queue 1 of 1: Playlist", "Apple Music", "Playlist",
+        "Track 1 of 1: songs", "01. Missing", "Track already exists locally.",
+        "======= Completed: 1/1 | Warnings: 0 | Errors: 0 =======",
+    ]))
+
+    def run():
+        manager._container_id = "test-container"
+        manager._is_running = True
+        asyncio.run(manager._stream_output())
+        return manager.last_summary
+
+    failed = run()
+    assert failed["status"] == "failed"
+    assert failed["verified_files"] == []
+    assert failed["destination"] == str(tmp_path)
+
+    local = collection / "01. Missing.flac"
+    local.write_bytes(b"fLaC" + b"0" * 8192)
+    ready = run()
+    assert ready["status"] == "completed"
+    assert ready["verified_files"] == [str(local)]
+
+
+def test_staged_outputs_are_published_to_the_library(tmp_path):
+    from download_storage import verify_download_files
+
+    working, library = tmp_path / "working", tmp_path / "library"
+    staged = working / "ALAC" / "Playlist" / "01. Song.flac"
+    staged.parent.mkdir(parents=True)
+    library.mkdir()
+    audio = b"fLaC" + b"0" * 8192
+    staged.write_bytes(audio)
+
+    destination = library / staged.relative_to(working)
+    assert verify_download_files(working, library, [], [staged]) == [str(destination)]
+    assert destination.read_bytes() == audio
+    destination.write_bytes(b"existing data")
+    assert verify_download_files(working, library, [], [staged]) == []
+    assert destination.read_bytes() == b"existing data"
+
+
+def test_mount_probe_uses_exit_status_without_reading_docker_logs(monkeypatch, tmp_path):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import download_storage
+
+    removed = []
+    exit_status = 0
+
+    def create(_image, **kwargs):
+        command = kwargs["command"]
+        marker = tmp_path / Path(command[-2]).name
+        assert marker.read_text() == command[-1]
+        assert kwargs["network_mode"] == "none"
+        assert next(iter(kwargs["volumes"].values()))["mode"] == "ro"
+        # Deliberately provide no logs(): the check must work with any driver.
+        return SimpleNamespace(
+            start=lambda: None,
+            wait=lambda **_: {"StatusCode": exit_status},
+            remove=lambda **flags: removed.append(flags),
+        )
+
+    client = SimpleNamespace(containers=SimpleNamespace(create=create))
+    monkeypatch.setattr(download_storage.docker_mgr, "get_client", lambda: client)
+
+    assert download_storage.docker_sees_folder(str(tmp_path))
+    exit_status = 1
+    assert not download_storage.docker_sees_folder(str(tmp_path))
+    assert removed == [{"force": True, "v": True}] * 2
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_only_new_covers_beside_completed_tracks_are_removed(tmp_path):
     manager = download_manager.DownloadManager()
     old_folder = tmp_path / "old"

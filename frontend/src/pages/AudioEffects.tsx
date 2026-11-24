@@ -233,6 +233,7 @@ export default function AudioEffects() {
             <SliderBank controls={SPATIALIZER_CONTROLS.map((control) => ({ ...control, min: 0, step: 1, unit: 'point' }))}
               values={audio.spatializerSettings} enabled={audio.spatializer}
               onChange={(key, value) => updateAudio({ spatializerSettings: { ...currentAudio.current.spatializerSettings, [key]: value } })} />
+            <p className="text-xs text-gray-400">Width changes the spread of the room reflections. Wet controls the reflections and Dry controls the original signal.</p>
           </div>
         </section>}
 

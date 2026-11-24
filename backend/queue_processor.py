@@ -102,7 +102,7 @@ class QueueProcessor:
                     url=url,
                     title=summary.get("track_name") or url,
                     status=summary.get("status", "completed"),
-                    track_count=summary.get("completed", 0),
+                    track_count=len(summary["verified_files"]) if "verified_files" in summary else summary.get("completed", 0),
                     error_count=summary.get("failed", 0),
                     created_at=datetime.utcnow(),
                     completed_at=datetime.utcnow(),

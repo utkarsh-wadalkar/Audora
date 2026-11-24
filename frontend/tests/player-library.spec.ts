@@ -490,6 +490,8 @@ test('spatializer sliders change the rendered audio and disabling it bypasses th
     return { room, small, narrow, damped, silent, dry, bypass };
   });
   expect(levels.room.tail).toBeGreaterThan(0.00001);
+  expect(levels.room.energy).toBeGreaterThan(0.25);
+  expect(levels.room.energy).toBeLessThan(levels.bypass.energy);
   expect(levels.small.tail).toBeLessThan(levels.room.tail / 100);
   expect(levels.room.stereo).toBeGreaterThan(0.001);
   expect(levels.narrow.stereo).toBeLessThan(0.000001);
