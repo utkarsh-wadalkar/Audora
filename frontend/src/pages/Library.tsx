@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowUp, ArrowDown, Music, Search, RefreshCw, Play, ListPlus, ListMusic, Trash2, Plus, Pencil, Check, X, Heart } from 'lucide-react';
-import { api, API_BASE } from '../api/client';
+import { isAxiosError } from 'axios';
+import { ArrowLeft, ArrowUp, ArrowDown, Search, RefreshCw, Play, ListPlus, ListMusic, Trash2, Plus, Pencil, Check, X, Heart } from 'lucide-react';
+import { api } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import type { Track } from '../store/useAppStore';
+import TrackArtwork from '../components/TrackArtwork';
 import { formatDuration } from '../lib/format';
 
 type Tab = 'tracks' | 'artists' | 'albums' | 'playlists' | 'favorites' | 'smart';
 type Sort = 'title' | 'artist' | 'album';
 
 interface AlbumGroup {
+  id?: string;
   folder_path: string;
   artist?: string;
   album?: string;
@@ -48,33 +51,11 @@ function compareTracks(first: Track, second: Track, sort: Sort) {
   return byTitle || naturalName.compare(first.file_path, second.file_path);
 }
 
-function AlbumArt({ trackId, size = 28 }: { trackId?: number; size?: number }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!trackId || failed) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-white/[0.04] text-gray-600">
-        <Music size={size} />
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={`${API_BASE}/library/art/${trackId}`}
-      alt=""
-      loading="lazy"
-      className="h-full w-full object-cover"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
 /** Album art with a hover play affordance, shared by the track and album grids. */
-function ArtworkTile({ trackId, showPlay = true }: { trackId?: number; showPlay?: boolean }) {
+function ArtworkTile({ track, showPlay = true }: { track?: Track; showPlay?: boolean }) {
   return (
     <div className="relative mb-3 aspect-square overflow-hidden rounded-xl border border-white/[0.08] shadow-glass">
-      <AlbumArt trackId={trackId} />
+      <TrackArtwork track={track} />
       {showPlay && <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob">
           <Play size={15} fill="currentColor" className="ml-0.5" />
@@ -127,7 +108,8 @@ export default function Library() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('title');
   const [scanning, setScanning] = useState(false);
-  const [openAlbumPath, setOpenAlbumPath] = useState<string | null>(null);
+  const [scanError, setScanError] = useState('');
+  const [openAlbumId, setOpenAlbumId] = useState<string | null>(null);
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [playlistError, setPlaylistError] = useState('');
@@ -227,9 +209,13 @@ export default function Library() {
 
   const rescan = async () => {
     setScanning(true);
+    setScanError('');
     try {
-      await api.post('/library/scan');
+      await api.post('/library/scan', undefined, { timeout: 0 });
       await load();
+    } catch (error) {
+      const detail = isAxiosError(error) && error.response?.status === 409 && error.response.data?.detail;
+      setScanError(typeof detail === 'string' ? detail : 'Audora couldn’t finish scanning your music. Select Rescan to try again.');
     } finally {
       setScanning(false);
     }
@@ -323,7 +309,7 @@ export default function Library() {
     let list = tracks;
     if (needle) {
       list = tracks.filter((track) =>
-        [track.title, track.artist, track.album].some((field) =>
+        [track.title, track.artist, track.album, track.file_path.split(/[\\/]/).pop()].some((field) =>
           (field || '').toLowerCase().includes(needle)
         )
       );
@@ -334,7 +320,7 @@ export default function Library() {
   const artists = useMemo(() => {
     const byArtist = new Map<
       string,
-      { name: string; count: number; artTrackId?: number; tracks: Track[] }
+      { name: string; count: number; tracks: Track[] }
     >();
     tracks.forEach((track) => {
       const name = track.artist || 'Unknown artist';
@@ -343,7 +329,7 @@ export default function Library() {
         existing.count += 1;
         existing.tracks.push(track);
       } else {
-        byArtist.set(name, { name, count: 1, artTrackId: track.id, tracks: [track] });
+        byArtist.set(name, { name, count: 1, tracks: [track] });
       }
     });
     return Array.from(byArtist.values()).sort((first, second) =>
@@ -397,7 +383,7 @@ export default function Library() {
     );
   }
 
-  const openAlbum = albums.find((album) => album.folder_path === openAlbumPath);
+  const openAlbum = albums.find((album) => (album.id ?? album.folder_path) === openAlbumId);
   if (openAlbum) {
     const albumTracks = [...openAlbum.tracks].sort((first, second) =>
       naturalName.compare(first.file_path, second.file_path)
@@ -405,7 +391,7 @@ export default function Library() {
     return (
       <div className="animate-rise-in space-y-8 pt-2">
         <button
-          onClick={() => setOpenAlbumPath(null)}
+          onClick={() => setOpenAlbumId(null)}
           className="flex items-center gap-2 text-sm text-gray-400 transition-colors hover:text-gray-100"
         >
           <ArrowLeft size={17} /> Albums
@@ -414,7 +400,7 @@ export default function Library() {
         {playlistStatus && <p role="status" className="text-xs text-audora-300">{playlistStatus}</p>}
         <div className="flex flex-wrap items-end gap-7">
           <div className="aspect-square w-56 max-w-full shrink-0 overflow-hidden rounded-2xl border border-white/[0.08] shadow-glass">
-            <AlbumArt trackId={albumTracks[0]?.id} />
+            <TrackArtwork track={albumTracks[0]} />
           </div>
           <div className="min-w-0 flex-1 pb-1">
             <p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-audora-400">Album</p>
@@ -438,7 +424,7 @@ export default function Library() {
             >
               <span className="w-6 shrink-0 text-right font-mono text-xs text-gray-500">{index + 1}</span>
               <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg">
-                <AlbumArt trackId={track.id} size={16} />
+                <TrackArtwork track={track} size={16} />
               </div>
               <button onClick={() => playTracks(albumTracks, track)} aria-label={`Play ${track.title || `track ${index + 1}`}`} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-medium text-gray-100">{track.title || 'Unknown track'}</span>
@@ -469,6 +455,7 @@ export default function Library() {
           {scanning ? 'Scanning…' : 'Rescan'}
         </button>
       </div>
+      {scanError && <p role="alert" className="text-sm text-rose-300">{scanError}</p>}
 
       <div className="flex items-center gap-3">
         <div className="glass flex items-center gap-1 rounded-full p-1">
@@ -539,7 +526,7 @@ export default function Library() {
           {playlists.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
             {playlists.filter((playlist) => playlist.name.toLowerCase().includes(needle)).map((playlist) => (
               <button key={playlist.id} onClick={() => setOpenPlaylistId(playlist.id)} className="glass glass-hover group rounded-2xl p-4 text-left">
-                <div className="relative z-10 mb-4 aspect-square overflow-hidden rounded-xl bg-white/[0.04] text-audora-400"><AlbumArt trackId={playlist.tracks.find((entry) => entry.track?.id)?.track?.id} size={38} /></div>
+                <div className="relative z-10 mb-4 aspect-square overflow-hidden rounded-xl bg-white/[0.04] text-audora-400"><TrackArtwork track={playlist.tracks.find((entry) => entry.track?.id)?.track} size={38} /></div>
                 <p className="relative z-10 truncate text-sm font-medium text-gray-100">{playlist.name}</p>
                 <p className="relative z-10 text-xs text-gray-500">{playlist.tracks.length} tracks</p>
               </button>
@@ -558,12 +545,14 @@ export default function Library() {
               className="group min-w-0 max-w-[18rem] text-left"
             >
               <button onClick={() => playTracks(tab === 'favorites' ? filtered.filter((item) => favorites.includes(item.file_path)) : filtered, track)} className="block w-full text-left" aria-label={`Play ${track.title || 'track'}`}>
-                <ArtworkTile trackId={track.id} />
+                <ArtworkTile track={track} />
                 <p className="truncate text-sm font-medium text-gray-100">{track.title}</p>
                 <p className="truncate text-xs text-gray-500">{track.artist}</p>
               </button>
               <div className="mt-1 flex items-center justify-between gap-1">
-                <span className="font-mono text-[10px] tabular-nums text-gray-600">{formatDuration(track.duration)}</span>
+                <span className="font-mono text-[10px] tabular-nums text-gray-600" title={!track.duration ? 'Duration unavailable' : undefined}>
+                  {track.duration ? formatDuration(track.duration) : '—'}
+                </span>
                 <TrackActions track={track} playlists={playlists} favorite={favorites.includes(track.file_path)} onToggleFavorite={toggleFavorite} onPlayNext={queueNext} onQueueLast={queueLast} onAddToPlaylist={addToPlaylist} />
               </div>
             </div>
@@ -582,7 +571,7 @@ export default function Library() {
                 className="glass glass-hover group flex items-center gap-3 rounded-2xl p-3 text-left"
               >
                 <div className="relative z-10 h-11 w-11 shrink-0 overflow-hidden rounded-full">
-                  <AlbumArt trackId={artist.artTrackId} size={16} />
+                  <TrackArtwork track={artist.tracks[0]} size={16} />
                 </div>
                 <div className="relative z-10 min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-100">{artist.name}</p>
@@ -596,16 +585,19 @@ export default function Library() {
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
+          {!albums.length && tracks.length > 0 && (
+            <p className="col-span-full text-sm text-gray-400">No album tags found. You can still find these songs in Tracks.</p>
+          )}
           {albums
             .filter((album) => (album.album || '').toLowerCase().includes(needle))
             .map((album) => (
               <button
-                key={album.folder_path}
-                onClick={() => setOpenAlbumPath(album.folder_path)}
+                key={album.id ?? album.folder_path}
+                onClick={() => setOpenAlbumId(album.id ?? album.folder_path)}
                 aria-label={`Open ${album.album || 'Unknown album'}`}
                 className="group min-w-0 max-w-[18rem] text-left"
               >
-                <ArtworkTile trackId={album.tracks[0]?.id} showPlay={false} />
+                <ArtworkTile track={album.tracks[0]} showPlay={false} />
                 <p className="truncate text-sm font-medium text-gray-100">
                   {album.album || 'Unknown album'}
                 </p>

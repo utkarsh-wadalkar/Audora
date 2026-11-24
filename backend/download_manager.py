@@ -124,7 +124,7 @@ class DownloadManager:
             return False
 
         settings = get_settings()
-        downloads_path = settings.get("downloads_path")
+        downloads_path = settings.get("library_path") or settings.get("downloads_path")
 
         try:
             os.makedirs(downloads_path, exist_ok=True)

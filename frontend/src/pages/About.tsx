@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import { version } from '../../package.json';
 
 const CREDITS = [
   {
@@ -22,7 +23,7 @@ export default function About() {
         <div className="relative z-10">
           <p className="flex items-baseline gap-2 text-lg font-semibold text-gray-100">
             <span className="wordmark text-[1.6rem] leading-[1.15]">Audora</span>
-            <span>1.4.0</span>
+            <span>{version}</span>
           </p>
           <p className="mt-1 text-sm text-gray-400">
             Lossless downloader and library manager for Apple Music.
@@ -45,7 +46,7 @@ export default function About() {
 
       <section className="space-y-3">
         <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-gray-500">
-          Built on
+          Credits
         </h2>
         <div className="glass overflow-hidden rounded-2xl">
           {CREDITS.map((credit, index) => (
@@ -67,7 +68,7 @@ export default function About() {
           ))}
         </div>
         <p className="text-xs text-gray-500">
-          Audora exists because of this upstream work. Thank you to both projects.
+          Thank you to the maintainers and contributors of both projects for making Audora possible.
         </p>
       </section>
 

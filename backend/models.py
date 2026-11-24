@@ -38,10 +38,18 @@ class LibraryTrack(Base):
     title = Column(String, nullable=True)
     artist = Column(String, nullable=True)
     album = Column(String, nullable=True)
+    album_artist = Column(String, nullable=True)
     duration = Column(Integer, default=0)
     file_size = Column(Integer, default=0)
     format = Column(String, nullable=True)
     last_scanned = Column(DateTime, default=datetime.utcnow)
+
+
+class LibraryTrackSequence(Base):
+    __tablename__ = "library_track_sequence"
+
+    id = Column(Integer, primary_key=True)
+    last_track_id = Column(Integer, nullable=False)
 
 
 class Playlist(Base):

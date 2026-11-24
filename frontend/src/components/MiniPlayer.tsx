@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Music, Shuffle, Repeat, Repeat1, ListMusic, X, ArrowUp, ArrowDown, Heart, Mic2, SlidersHorizontal } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Shuffle, Repeat, Repeat1, ListMusic, X, ArrowUp, ArrowDown, Heart, Mic2, SlidersHorizontal } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { api, API_BASE } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { audioEngine, readAudioSettings } from '../lib/audioEngine';
 import { useNavigate } from 'react-router-dom';
 import { parseLrc } from '../lib/lyrics';
+import TrackArtwork from './TrackArtwork';
 
 export default function MiniPlayer() {
   const navigate = useNavigate();
@@ -218,7 +219,7 @@ export default function MiniPlayer() {
       {showLyrics && (
         <div className="absolute bottom-[78px] right-3 z-30 flex max-h-[65vh] w-[min(26rem,90vw)] flex-col rounded-2xl border border-white/[0.12] bg-[#1b1a22] p-4 shadow-2xl">
           <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium text-gray-100">Lyrics · {currentTrack?.title || 'No track'}</span><button onClick={() => setShowLyrics(false)} aria-label="Close lyrics" className="text-gray-400 hover:text-white"><X size={16} /></button></div>
-          <div ref={lyricsScrollRef} className="overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-gray-300">{lyricsLoading ? 'Loading lyrics…' : timedLyrics.length ? timedLyrics.map((line, index) => <button key={`${line.seconds}-${index}`} data-active={index === activeLyric} onClick={() => audioEngine.seek(line.seconds)} className={`block w-full rounded px-1 py-1 text-left transition-colors ${index === activeLyric ? 'text-audora-300' : 'text-gray-400 hover:text-gray-100'}`}>{line.text || '♪'}</button>) : lyrics || 'No lyrics were found in this track or a matching .lrc/.txt file.'}</div>
+          <div ref={lyricsScrollRef} className="scrollbar-lyrics min-h-0 overflow-y-auto whitespace-pre-wrap pr-2 text-sm leading-relaxed text-gray-300">{lyricsLoading ? 'Loading lyrics…' : timedLyrics.length ? timedLyrics.map((line, index) => <button key={`${line.seconds}-${index}`} data-active={index === activeLyric} onClick={() => audioEngine.seek(line.seconds)} className={`block w-full rounded px-1 py-1 text-left transition-colors ${index === activeLyric ? 'text-audora-300' : 'text-gray-400 hover:text-gray-100'}`}>{line.text || '♪'}</button>) : lyrics || 'No lyrics were found in this track or a matching .lrc/.txt file.'}</div>
         </div>
       )}
       {showUpNext && (
@@ -245,19 +246,7 @@ export default function MiniPlayer() {
       )}
       <div className="relative z-10 flex min-w-0 flex-1 items-center gap-3">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.04] text-gray-600">
-          {currentTrack?.id ? (
-            <img
-              key={currentTrack.id}
-              src={`${API_BASE}/library/art/${currentTrack.id}`}
-              alt=""
-              className="h-full w-full object-cover"
-              onError={(event) => {
-                (event.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-              }}
-            />
-          ) : (
-            <Music size={18} />
-          )}
+          <TrackArtwork track={currentTrack} size={18} eager />
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-gray-100">
@@ -306,7 +295,7 @@ export default function MiniPlayer() {
           </button>
           <button onClick={() => setShowUpNext((open) => !open)} title="Up Next" aria-label="Show Up Next" aria-expanded={showUpNext} className={showUpNext ? 'text-audora-400' : 'text-gray-500 hover:text-gray-200'}><ListMusic size={16} /></button>
           <button onClick={() => setShowLyrics((open) => !open)} title="Lyrics" aria-label="Show lyrics" aria-expanded={showLyrics} className={showLyrics ? 'text-audora-400' : 'text-gray-500 hover:text-gray-200'}><Mic2 size={16} /></button>
-          <button onClick={() => navigate('/settings#audio')} title="Audio effects" aria-label="Open audio effects" className="text-gray-500 hover:text-gray-200"><SlidersHorizontal size={16} /></button>
+          <button onClick={() => navigate('/audio-effects')} title="Audio effects" aria-label="Open audio effects" className="text-gray-500 hover:text-gray-200"><SlidersHorizontal size={16} /></button>
         </div>
         <div className="flex w-full items-center gap-2.5 font-mono text-[10px] tabular-nums text-gray-500">
           <span>{formatDuration(position)}</span>

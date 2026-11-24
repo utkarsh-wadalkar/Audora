@@ -4,6 +4,7 @@ import { restoreUpcoming, shuffleUpcoming } from '../lib/playbackOrder';
 
 export interface Track {
   id?: number;
+  artwork_revision?: string | null;
   file_path: string;
   title?: string;
   artist?: string;
@@ -67,6 +68,7 @@ interface AppState {
   // UI
   loginModalOpen: boolean;
   setupComplete: boolean | null; // null = unknown/loading
+  libraryOnly: boolean;
 
   // Setup-step state machine (QC_plan §6.1), keyed by step id.
   setupSteps: Record<string, SetupStepState>;
@@ -85,6 +87,7 @@ interface AppState {
   refreshStatus: () => Promise<void>;
   checkSetup: () => Promise<void>;
   markSetupComplete: () => void;
+  markLibraryOnly: () => void;
   applySetupEvent: (event: SetupProgressEvent) => void;
   seedSetupSteps: (snapshot: SetupStatusSnapshot) => void;
   openLogin: () => void;
@@ -120,6 +123,7 @@ export const useAppStore = create<AppState>((set) => ({
   pending2fa: false,
   loginModalOpen: false,
   setupComplete: null,
+  libraryOnly: false,
   setupSteps: {},
   currentTrack: null,
   isPlaying: false,
@@ -153,15 +157,17 @@ export const useAppStore = create<AppState>((set) => ({
 
   checkSetup: async () => {
     try {
-      const r = await api.get('/setup/status');
-      set({ setupComplete: !!r.data.data?.complete });
+      const r = await api.get('/setup/status', { params: { include_system: false } });
+      const setupComplete = !!r.data.data?.complete;
+      set({ setupComplete, libraryOnly: !setupComplete && !!r.data.data?.library_only });
     } catch {
       // If the backend isn't up yet, assume not complete so we don't skip it.
       set({ setupComplete: false });
     }
   },
 
-  markSetupComplete: () => set({ setupComplete: true }),
+  markSetupComplete: () => set({ setupComplete: true, libraryOnly: false }),
+  markLibraryOnly: () => set({ setupComplete: false, libraryOnly: true }),
 
   // Apply an incoming `/ws/setup` `setup_progress` event to the step slice.
   // Merges by step id so a running tick's percent/progress accumulates and an

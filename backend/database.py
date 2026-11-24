@@ -1,14 +1,13 @@
 """SQLAlchemy engine + session management on SQLite (WAL mode)."""
 import os
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
+from runtime_platform import get_data_dir
+from user_data import migrate_user_data
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_DATA_DIR = os.path.join(_BASE_DIR, "data")
+_DATA_DIR = get_data_dir()
 _DB_PATH = os.path.join(_DATA_DIR, "audora.db")
-
-os.makedirs(_DATA_DIR, exist_ok=True)
 
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{_DB_PATH}"
 
@@ -36,7 +35,12 @@ def init_db() -> None:
     """Create all tables. Import models first so they register on Base."""
     import models  # noqa: F401  (registers mappers on Base)
 
+    migrate_user_data(_DATA_DIR)
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        columns = inspect(connection).get_columns("library_tracks")
+        if not any(column["name"] == "album_artist" for column in columns):
+            connection.exec_driver_sql("ALTER TABLE library_tracks ADD COLUMN album_artist VARCHAR")
 
 
 def get_db():

@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -19,25 +19,47 @@ jobs:
             id: windows-x64
             os: windows-latest
             artifacts: |
-              frontend/dist-electron/*.exe
-              frontend/dist-electron/*.blockmap
+              .cache/BUILD/dist-electron/*.exe
+              .cache/BUILD/dist-electron/latest.yml
+              .cache/BUILD/dist-electron/*.blockmap
           - name: Linux x64
             id: linux-x64
             os: ubuntu-latest
             artifacts: |
-              frontend/dist-electron/*.AppImage
-              frontend/dist-electron/*.deb
-              frontend/dist-electron/*.blockmap
+              .cache/BUILD/dist-electron/*.AppImage
+              .cache/BUILD/dist-electron/*.deb
+              .cache/BUILD/dist-electron/latest-linux.yml
+              .cache/BUILD/dist-electron/*.blockmap
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
-      - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: "3.13"
+          persist-credentials: false
+      - name: Set up Python 3.13.18 on Linux
+        if: runner.os == 'Linux'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13.18"
+      - name: Set up Python 3.13.18 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pythonHome = Join-Path $env:RUNNER_TEMP 'audora-python'
+          $archive = Join-Path $env:RUNNER_TEMP 'audora-python.tar.gz'
+          $uri = 'https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-x86_64-pc-windows-msvc-install_only.tar.gz'
+          $sha256 = '7e93813bd362c6413f30788b248590e2f169df2d17dcac81aafbcc7a6eeb542c'
+          Invoke-WebRequest -Uri $uri -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $sha256) {
+            throw 'The Windows Python archive checksum did not match.'
+          }
+          New-Item -ItemType Directory -Path $pythonHome | Out-Null
+          tar.exe -xzf $archive -C $pythonHome
+          if ($LASTEXITCODE -ne 0) { throw 'Could not unpack the Windows Python build.' }
+          $pythonExe = Join-Path $pythonHome 'python/python.exe'
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "AUDORA_BUILD_PYTHON=$pythonExe"
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -46,10 +68,11 @@ jobs:
         working-directory: frontend
         run: npm run dist
       - name: Upload platform release artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: audora-${{ matrix.id }}
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
           path: ${{ matrix.artifacts }}
 
@@ -57,9 +80,11 @@ jobs:
     name: Publish GitHub release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download Windows and Linux artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: artifacts
       - name: Generate SHA-256 checksums
@@ -68,15 +93,18 @@ jobs:
             -exec sha256sum {} + | sort -k2 > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Audora ${{ github.ref_name }}
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
           files: |
             artifacts/**/*.exe
             artifacts/**/*.AppImage
             artifacts/**/*.deb
+            artifacts/**/latest.yml
+            artifacts/**/latest-linux.yml
             artifacts/**/*.blockmap
             SHA256SUMS.txt

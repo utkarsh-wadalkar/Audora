@@ -1,15 +1,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 
 const frontend = path.resolve(__dirname, '..');
 const root = path.resolve(frontend, '..');
 const backend = path.join(root, 'backend');
 const cache = path.join(root, '.cache');
-const venv = path.join(cache, 'qa-build-venv');
-const venvPython = process.platform === 'win32'
-  ? path.join(venv, 'Scripts', 'python.exe')
-  : path.join(venv, 'bin', 'python');
 
 function insideRepository(target) {
   const relative = path.relative(root, path.resolve(target));
@@ -19,7 +16,34 @@ function insideRepository(target) {
 
 function cleanGenerated(target) {
   if (!insideRepository(target)) throw new Error(`Refusing to clean outside Audora: ${target}`);
-  fs.rmSync(target, { recursive: true, force: true });
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+
+function preparePackageOutput(platform, output, scratch) {
+  if (!insideRepository(output) || !insideRepository(scratch)) {
+    throw new Error(`Refusing to move package output outside Audora: ${output}`);
+  }
+  if (platform !== 'win32' || !fs.existsSync(output)) {
+    cleanGenerated(output);
+    return output;
+  }
+
+  // Move the prior build as a unit so a running app cannot cause a partial cleanup.
+  const previous = path.join(scratch, `previous-dist-${randomUUID()}`);
+  try {
+    fs.renameSync(output, previous);
+  } catch (error) {
+    if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || process.env.GITHUB_ACTIONS === 'true') throw error;
+    const alternate = fs.mkdtempSync(path.join(scratch, 'dist-electron-'));
+    process.stderr.write(`Windows is holding ${output} open. Building into ${alternate}\n`);
+    return alternate;
+  }
+  try {
+    cleanGenerated(previous);
+  } catch (error) {
+    process.stderr.write(`Previous build remains at ${previous}: ${error.message}\n`);
+  }
+  return output;
 }
 
 function run(label, command, args, cwd = root, env = process.env) {
@@ -37,44 +61,76 @@ function npm(label, args) {
   run(label, process.execPath, [npmCli, ...args], frontend, env);
 }
 
+function buildBackend(platform, python, pythonPrefix) {
+  const scratch = fs.mkdtempSync(path.join(cache, 'backend-build-'));
+  const venv = path.join(scratch, 'venv');
+  const venvPython = platform === 'win32'
+    ? path.join(venv, 'Scripts', 'python.exe')
+    : path.join(venv, 'bin', 'python');
+  try {
+    run('Create Python environment', python, [...pythonPrefix, '-m', 'venv', venv]);
+    run('Install backend dependencies', venvPython, [
+      '-m', 'pip', 'install', '-r', 'backend/requirements.txt',
+      '-r', 'backend/requirements-build.txt', '-r', 'backend/requirements-test.txt',
+    ]);
+    run('Test backend', venvPython, [
+      '-m', 'pytest', 'backend/tests', '-q', '--basetemp', path.join(scratch, 'pytest'),
+    ]);
+    run('Freeze backend', venvPython, [
+      '-m', 'PyInstaller', '--noconfirm', '--clean', 'backend.spec',
+    ], backend);
+  } finally {
+    try {
+      cleanGenerated(scratch);
+    } catch (error) {
+      process.stderr.write(`Temporary Python build files remain at ${scratch}: ${error.message}\n`);
+    }
+  }
+}
+
 function build(platform = process.platform) {
   if (!['win32', 'linux'].includes(platform)) {
     throw new Error(`Unsupported build platform: ${platform}`);
   }
-  const python = platform === 'win32' ? 'py' : 'python3.13';
-  const pythonPrefix = platform === 'win32' ? ['-3.13'] : [];
+  const { version, build: buildConfig } = require('../package.json');
+  if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `v${version}`) {
+    throw new Error(`Release tag must match app version v${version}`);
+  }
+  const configuredPython = process.env.AUDORA_BUILD_PYTHON;
+  const python = configuredPython || (platform === 'win32' ? 'py' : 'python3.13');
+  const pythonPrefix = !configuredPython && platform === 'win32' ? ['-3.13'] : [];
   run('Check Python 3.13', python, [...pythonPrefix, '--version']);
 
+  // npm ci replaces node_modules itself. Fail here before clearing build output
+  // if Windows still has a dependency file open.
+  npm('Install frontend dependencies', ['ci']);
   for (const target of [
     path.join(backend, 'build'), path.join(backend, 'dist'),
-    path.join(frontend, 'dist'), path.join(frontend, 'dist-electron'),
-    path.join(frontend, 'node_modules'), venv, path.join(cache, 'qa-pytest'),
+    path.join(frontend, 'dist'),
   ]) cleanGenerated(target);
   fs.mkdirSync(cache, { recursive: true });
+  buildBackend(platform, python, pythonPrefix);
 
-  run('Create Python environment', python, [...pythonPrefix, '-m', 'venv', venv]);
-  run('Install backend dependencies', venvPython, [
-    '-m', 'pip', 'install', '-r', 'backend/requirements.txt',
-    '-r', 'backend/requirements-build.txt', '-r', 'backend/requirements-test.txt',
-  ]);
-  run('Test backend', venvPython, [
-    '-m', 'pytest', 'backend/tests', '-q', '--basetemp', path.join(cache, 'qa-pytest'),
-  ]);
-  run('Freeze backend', venvPython, [
-    '-m', 'PyInstaller', '--noconfirm', '--clean', 'backend.spec',
-  ], backend);
-
-  npm('Install frontend dependencies', ['ci']);
   npm('Test Electron', ['run', 'test:electron']);
   npm('Build frontend', ['run', 'build']);
+  const defaultOutput = path.resolve(frontend, buildConfig.directories.output);
+  const outputRoot = path.dirname(defaultOutput);
+  if (!insideRepository(outputRoot)) throw new Error(`Package output is outside Audora: ${defaultOutput}`);
+  fs.mkdirSync(outputRoot, { recursive: true });
+  const packageOutput = preparePackageOutput(platform, defaultOutput, outputRoot);
   const targetArgs = platform === 'win32'
     ? ['--win', 'nsis', '--x64']
     : ['--linux', 'AppImage', 'deb', '--x64'];
   npm(`Package ${platform === 'win32' ? 'Windows' : 'Linux'} x64`, [
     'exec', '--', 'electron-builder', ...targetArgs, '--publish', 'never',
+    ...(packageOutput !== defaultOutput ? [`--config.directories.output=${packageOutput}`] : []),
   ]);
+  const manifest = platform === 'win32' ? 'latest.yml' : 'latest-linux.yml';
+  if (!fs.existsSync(path.join(packageOutput, manifest))) {
+    throw new Error(`Package did not produce the update manifest ${manifest}`);
+  }
 
-  const unpacked = path.join(frontend, 'dist-electron',
+  const unpacked = path.join(packageOutput,
     platform === 'win32' ? 'win-unpacked' : 'linux-unpacked');
   if (platform === 'linux') {
     const helper = path.join(unpacked, 'chrome-sandbox');
@@ -88,7 +144,7 @@ function build(platform = process.platform) {
     run('Smoke test Windows package', process.execPath,
       ['electron/smoke-packaged.js', unpacked], frontend);
   }
-  process.stdout.write(`\nInstaller artifacts: ${path.join(frontend, 'dist-electron')}\n`);
+  process.stdout.write(`\nInstaller artifacts: ${packageOutput}\n`);
 }
 
 if (require.main === module) {
@@ -96,4 +152,4 @@ if (require.main === module) {
   catch (error) { console.error(error.stack || error.message); process.exitCode = 1; }
 }
 
-module.exports = { build, cleanGenerated, insideRepository };
+module.exports = { build, cleanGenerated, insideRepository, preparePackageOutput };

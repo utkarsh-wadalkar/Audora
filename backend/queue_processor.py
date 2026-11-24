@@ -14,6 +14,7 @@ from download_manager import dl_mgr
 from wrapper_manager import wrapper_mgr
 from docker_manager import docker_mgr
 from logger import get_logger
+from settings import get_settings
 
 logger = get_logger("queue")
 
@@ -129,7 +130,7 @@ class QueueProcessor:
     async def _run(self) -> None:
         while not self._stop:
             try:
-                if self.paused or dl_mgr.is_running:
+                if self.paused or dl_mgr.is_running or get_settings().get("library_only"):
                     await asyncio.sleep(1)
                     continue
 

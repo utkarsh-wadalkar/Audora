@@ -1,19 +1,16 @@
-"""Scan the downloads folder, extract FLAC metadata, persist to SQLite,
-and cache album art.
-
-FLAC is the canonical playable format. Audora downloads the lossless ALAC
-source and converts it to FLAC (see ``flac_converter``) before a track is
-reported as ready, because Chromium — and therefore Electron — has no ALAC
-decoder: an ``.m4a`` would be listed here and then silently fail to play. So
-only ``.flac`` is scanned, and a leftover ``.m4a`` is deliberately ignored
-rather than surfaced as a track the player cannot open.
-"""
+"""Index local audio files and enrich each entry with any readable tags."""
+import base64
 import hashlib
+import json
 import os
 import re
+from tempfile import NamedTemporaryFile
+from threading import Lock
 from typing import Dict, List, Optional
 
 import mutagen
+from mutagen.flac import Picture
+from mutagen.id3 import PictureType
 
 from settings import get_settings
 from logger import get_logger
@@ -23,14 +20,37 @@ logger = get_logger("library")
 
 _ART_DIR = os.path.join(str(get_data_dir()), "album_art")
 
-TRACK_EXTENSION = ".flac"
 TRACK_FORMAT = "flac"
+AUDIO_MIME_TYPES = {
+    ".aac": "audio/aac",
+    ".ac3": "audio/ac3",
+    ".aif": "audio/aiff",
+    ".aifc": "audio/aiff",
+    ".aiff": "audio/aiff",
+    ".alac": "audio/mp4",
+    ".ape": "audio/ape",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".m4b": "audio/mp4",
+    ".mka": "audio/x-matroska",
+    ".mp2": "audio/mpeg",
+    ".mp3": "audio/mpeg",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".wave": "audio/wav",
+    ".webm": "audio/webm",
+    ".wma": "audio/x-ms-wma",
+    ".wv": "audio/wavpack",
+}
 
 # Vorbis-comment keys (FLAC) and their MP4-atom equivalents. Both are read so a
 # track keeps its tags if it ever arrives in a different container.
-_TITLE_KEYS = ("title", "\xa9nam")
-_ARTIST_KEYS = ("artist", "\xa9ART")
-_ALBUM_KEYS = ("album", "\xa9alb")
+_TITLE_KEYS = ("title", "\xa9nam", "TIT2", "Title")
+_ARTIST_KEYS = ("artist", "\xa9ART", "TPE1", "Author")
+_ALBUM_KEYS = ("album", "\xa9alb", "TALB", "WM/AlbumTitle")
+_ALBUM_ARTIST_KEYS = ("albumartist", "album artist", "aART", "TPE2", "WM/AlbumArtist")
 
 
 def _natural_name_key(value: str):
@@ -41,45 +61,83 @@ def _natural_name_key(value: str):
     )
 
 
+class LibraryFolderUnavailable(OSError):
+    pass
+
+
 class LibraryManager:
     def __init__(self) -> None:
-        self._tracks: List[Dict] = []
+        self._tracks: Optional[List[Dict]] = None
+        self._scan_lock = Lock()
 
     # --- Scanning ---
-    def scan_library(self) -> List[Dict]:
+    def scan_library(self, local_folder: Optional[str] = None) -> List[Dict]:
+        with self._scan_lock:
+            return self._scan_library(local_folder)
+
+    def _scan_library(self, local_folder: Optional[str]) -> List[Dict]:
         settings = get_settings()
-        downloads = settings.get("downloads_path")
+        directory = local_folder or settings.get("library_path") or settings.get("downloads_path")
+        if not directory:
+            raise LibraryFolderUnavailable("Choose a music folder in Settings, then select Rescan.")
+
+        def handle_walk_error(error: OSError) -> None:
+            if error.filename == directory:
+                raise LibraryFolderUnavailable(
+                    f"Audora couldn’t open {directory}. Reconnect the drive or choose another music folder in Settings, then rescan."
+                ) from error
+            logger.warning("Skipped an unreadable folder during the library scan: %s", error.filename)
+
         tracks: List[Dict] = []
-
-        if not downloads or not os.path.isdir(downloads):
-            logger.warning(f"Downloads path does not exist: {downloads}")
-            self._tracks = []
-            self._persist([])
-            return []
-
-        os.makedirs(_ART_DIR, exist_ok=True)
-
-        for root, _dirs, files in os.walk(downloads):
+        without_details = 0
+        for root, _dirs, files in os.walk(directory, onerror=handle_walk_error):
             for filename in files:
-                if filename.lower().endswith(TRACK_EXTENSION):
-                    path = os.path.join(root, filename)
-                    try:
-                        tracks.append(self._extract_metadata(path))
-                    except Exception as metadata_error:
-                        logger.warning(f"Failed to read metadata for {path}: {metadata_error}")
+                if os.path.splitext(filename)[1].lower() not in AUDIO_MIME_TYPES:
+                    continue
+                path = os.path.join(root, filename)
+                try:
+                    track = self._extract_metadata(path)
+                except FileNotFoundError:
+                    continue  # The file was removed after os.walk listed it.
+                except Exception as metadata_error:
+                    logger.debug(f"Failed to read audio details for {path}: {metadata_error}")
+                    track = self._track_from_path(path)
+                    without_details += 1
+                tracks.append(track)
 
-        self._tracks = tracks
         self._persist(tracks)
-        logger.info(f"Library scan complete: {len(tracks)} tracks")
+        self._tracks = tracks
+        logger.info(f"Library scan complete: {len(tracks)} tracks, {without_details} without readable audio details")
         return tracks
 
+    def _track_from_path(self, path: str, source_stat=None) -> Dict:
+        if source_stat is None:
+            try:
+                source_stat = os.stat(path)
+            except OSError:
+                pass
+        filename, extension = os.path.splitext(os.path.basename(path))
+        return {
+            "file_path": path,
+            "title": filename,
+            "artist": "Unknown Artist",
+            "album": "Unknown Album",
+            "duration": 0,
+            "file_size": source_stat.st_size if source_stat else 0,
+            "format": extension.lstrip(".").lower(),
+            "has_art": False,
+            "artwork_revision": None,
+        }
+
     def _extract_metadata(self, path: str) -> Dict:
+        source_stat = os.stat(path)
+        revision = self.artwork_revision(path, source_stat)
         audio = mutagen.File(path)
         if audio is None:
             raise ValueError(f"Unrecognised audio file: {path}")
-        tags = audio.tags or {}
+        tags = getattr(audio, "tags", None) or {}
 
-        def first_tag(keys, default: str) -> str:
+        def first_tag(keys, default=None):
             """First present value among ``keys``.
 
             Vorbis comments and MP4 atoms both return lists, but a Vorbis
@@ -89,122 +147,148 @@ class LibraryManager:
             for key in keys:
                 value = tags.get(key)
                 if value:
-                    entry = value[0] if isinstance(value, list) else value
+                    values = getattr(value, "text", value)
+                    if not values:
+                        continue
+                    entry = values[0] if isinstance(values, list) else values
                     if isinstance(entry, bytes):
-                        return entry.decode("utf-8", errors="replace")
-                    return str(entry)
+                        entry = entry.decode("utf-8", errors="replace")
+                    if str(entry).strip():
+                        return str(entry).strip()
             return default
 
-        title = first_tag(_TITLE_KEYS, os.path.splitext(os.path.basename(path))[0])
-        artist = first_tag(_ARTIST_KEYS, "Unknown Artist")
-        album = first_tag(_ALBUM_KEYS, "Unknown Album")
+        track = self._track_from_path(path, source_stat)
+        track.update(
+            title=first_tag(_TITLE_KEYS, track["title"]),
+            artist=first_tag(_ARTIST_KEYS, track["artist"]),
+            album=first_tag(_ALBUM_KEYS, track["album"]),
+            album_artist=first_tag(_ALBUM_ARTIST_KEYS),
+            duration=int(getattr(getattr(audio, "info", None), "length", 0) or 0),
+        )
+        art_path = self._cache_art(path, audio, revision)
+        track.update(has_art=bool(art_path), artwork_revision=revision if art_path else None)
+        return track
 
-        duration = int(audio.info.length) if audio.info else 0
-        size = os.path.getsize(path)
-
-        art_path = self._cache_art(path, audio)
-
-        return {
-            "file_path": path,
-            "title": title,
-            "artist": artist,
-            "album": album,
-            "duration": duration,
-            "file_size": size,
-            "format": TRACK_FORMAT,
-            "has_art": bool(art_path),
-        }
-
-    def _art_key(self, track_path: str) -> str:
-        """Stable per-track cache key, including tracks sharing one folder."""
-        path = os.path.abspath(track_path).encode("utf-8", errors="replace")
-        return hashlib.md5(path).hexdigest()
-
-    def _cache_art(self, track_path: str, audio) -> Optional[str]:
-        """Cache the track's embedded cover art independently of other tracks.
-
-        FLAC stores artwork in PICTURE metadata blocks (``FLAC.pictures``),
-        which is a different API from the MP4 ``covr`` atom — both are handled
-        so the art survives whichever container a file arrives in.
-
-        The cached file keeps a ``.png`` extension for compatibility with
-        ``get_art_path``, which recomputes the same name. The bytes are usually
-        JPEG (the downloader is configured with ``cover-format: jpg``); the art
-        endpoint sniffs the real type rather than trusting the extension.
-        """
-        data = self._extract_cover_bytes(audio)
-        if not data:
-            return None
+    @staticmethod
+    def artwork_revision(track_path: str, source_stat=None) -> Optional[str]:
+        """Bind cover URLs to a file and its revision, independent of SQLite IDs."""
         try:
-            # Ensure the cache dir here rather than relying on scan_library
-            # having made it: _extract_metadata is also called directly, and a
-            # missing dir silently cost every track its artwork.
-            os.makedirs(_ART_DIR, exist_ok=True)
-            key = self._art_key(track_path)
-            out = os.path.join(_ART_DIR, f"{key}.png")
-            if not os.path.exists(out):
-                with open(out, "wb") as handle:
-                    handle.write(data)
-            return out
-        except Exception as art_error:
-            logger.debug(f"art cache failed for {track_path}: {art_error}")
+            info = source_stat if source_stat is not None else os.stat(track_path)
+        except OSError:
             return None
+        path = os.path.normcase(os.path.abspath(track_path))
+        identity = (path, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        return hashlib.sha256(repr(identity).encode("utf-8", errors="surrogatepass")).hexdigest()
+
+    def _cache_art(self, track_path: str, audio, revision: Optional[str] = None) -> Optional[str]:
+        revision = revision or self.artwork_revision(track_path)
+        if not revision:
+            return None
+        out = os.path.join(_ART_DIR, f"{revision}.cover")
+        temporary = None
+        try:
+            data = self._extract_cover_bytes(audio)
+            if not data:
+                if os.path.isfile(out):
+                    os.remove(out)
+                return None
+            if os.path.isfile(out):
+                with open(out, "rb") as existing:
+                    if existing.read() == data:
+                        return out
+            os.makedirs(_ART_DIR, exist_ok=True)
+            with NamedTemporaryFile(dir=_ART_DIR, delete=False) as handle:
+                temporary = handle.name
+                handle.write(data)
+            os.replace(temporary, out)
+            return out
+        except (OSError, ValueError, TypeError, mutagen.MutagenError) as art_error:
+            logger.debug(f"Art cache failed for {track_path}: {art_error}")
+            return None
+        finally:
+            if temporary and os.path.exists(temporary):
+                try:
+                    os.remove(temporary)
+                except OSError:
+                    logger.debug("Could not remove temporary artwork cache file")
 
     @staticmethod
     def _extract_cover_bytes(audio) -> Optional[bytes]:
-        """Embedded cover bytes from a FLAC PICTURE block or an MP4 covr atom."""
-        pictures = getattr(audio, "pictures", None)
-        if pictures:
-            return bytes(pictures[0].data)
+        """Embedded artwork from FLAC, MP4, ID3, or Vorbis comments."""
+        tags = getattr(audio, "tags", None) or {}
+        pictures = list(getattr(audio, "pictures", None) or [])
+        if hasattr(tags, "getall"):
+            pictures.extend(tags.getall("APIC"))
+        for image in tags.get("metadata_block_picture", []):
+            try:
+                pictures.append(Picture(base64.b64decode(image, validate=True)))
+            except (ValueError, mutagen.MutagenError):
+                continue
+        for picture_type in (PictureType.COVER_FRONT, PictureType.OTHER):
+            for picture in pictures:
+                if getattr(picture, "type", PictureType.OTHER) == picture_type and picture.data:
+                    return bytes(picture.data)
 
-        tags = audio.tags or {}
-        covers = tags.get("covr") if hasattr(tags, "get") else None
+        covers = tags.get("covr")
         if covers:
             return bytes(covers[0])
         return None
 
     # --- Persistence ---
     def _persist(self, tracks: List[Dict]) -> None:
-        """Replace library_tracks rows with the freshly scanned set."""
+        """Refresh metadata without reassigning an existing track ID to another file."""
         from datetime import datetime
 
+        from sqlalchemy.dialects.sqlite import insert
         from database import SessionLocal
-        from models import LibraryTrack
+        from models import LibraryTrack, LibraryTrackSequence
 
         db = SessionLocal()
         try:
-            db.query(LibraryTrack).delete()
+            # Acquire the SQLite write lock before reading the allocator and rows.
+            # Existing installations seed it from their current track IDs below.
+            db.execute(insert(LibraryTrackSequence).values(id=1, last_track_id=0).on_conflict_do_nothing())
+            sequence = db.get(LibraryTrackSequence, 1)
+            remaining = {row.file_path: row for row in db.query(LibraryTrack)}
+            last_track_id = max(sequence.last_track_id, max((row.id for row in remaining.values()), default=0))
             now = datetime.utcnow()
+            assignments = []
             for track in tracks:
-                row = LibraryTrack(
-                    file_path=track["file_path"],
-                    title=track.get("title"),
-                    artist=track.get("artist"),
-                    album=track.get("album"),
-                    duration=track.get("duration", 0),
-                    file_size=track.get("file_size", 0),
-                    format=track.get("format", TRACK_FORMAT),
-                    last_scanned=now,
-                )
-                db.add(row)
-                # The scan response is used immediately by the UI. Populate
-                # the generated ID now so those tracks have valid stream/art
-                # URLs without requiring an application restart.
-                db.flush()
-                track["id"] = row.id
+                path = track["file_path"]
+                row = remaining.pop(path, None)
+                if row is None:
+                    last_track_id += 1
+                    row = LibraryTrack(id=last_track_id, file_path=path)
+                    db.add(row)
+                row.title = track.get("title")
+                row.artist = track.get("artist")
+                row.album = track.get("album")
+                row.album_artist = track.get("album_artist")
+                row.duration = track.get("duration", 0)
+                row.file_size = track.get("file_size", 0)
+                row.format = track.get("format", TRACK_FORMAT)
+                row.last_scanned = now
+                assignments.append((track, row.id))
+            for row in remaining.values():
+                db.delete(row)
+            sequence.last_track_id = last_track_id
             db.commit()
+            for track, track_id in assignments:
+                track["id"] = track_id
         except Exception as persist_error:
             db.rollback()
             logger.warning(f"Failed to persist library: {persist_error}")
+            raise
         finally:
             db.close()
 
     # --- Queries ---
     def get_all_tracks(self) -> List[Dict]:
-        if self._tracks:
+        if self._tracks is not None:
             return self._tracks
         # Fall back to the DB (e.g. after a restart without a rescan yet).
-        return self._load_from_db()
+        with self._scan_lock:
+            return self._tracks if self._tracks is not None else self._load_from_db()
 
     def _load_from_db(self) -> List[Dict]:
         from database import SessionLocal
@@ -220,9 +304,11 @@ class LibraryManager:
                     "title": row.title,
                     "artist": row.artist,
                     "album": row.album,
+                    "album_artist": row.album_artist,
                     "duration": row.duration,
                     "file_size": row.file_size,
                     "format": row.format,
+                    "artwork_revision": self.artwork_revision(row.file_path),
                 }
                 for row in rows
             ]
@@ -236,13 +322,24 @@ class LibraryManager:
                 return track
         return None
 
-    def get_art_path(self, track: Dict) -> Optional[str]:
-        """Return this track's cached artwork, if it exists."""
+    def get_art_path(self, track: Dict, requested_revision: Optional[str] = None) -> Optional[str]:
+        """Serve only the requested track revision and rebuild the cache on demand."""
         if not track or not track.get("file_path"):
             return None
-        key = self._art_key(track["file_path"])
-        candidate = os.path.join(_ART_DIR, f"{key}.png")
-        return candidate if os.path.exists(candidate) else None
+        source = track["file_path"]
+        revision = self.artwork_revision(source)
+        if not revision or (requested_revision is not None and requested_revision != revision):
+            return None
+        candidate = os.path.join(_ART_DIR, f"{revision}.cover")
+        if os.path.isfile(candidate):
+            return candidate
+        try:
+            audio = mutagen.File(source)
+            if audio is not None and self.artwork_revision(source) == revision:
+                return self._cache_art(source, audio, revision)
+        except (mutagen.MutagenError, OSError) as error:
+            logger.debug(f"Could not read artwork from {source}: {error}")
+        return None
 
     def get_artists(self) -> List[str]:
         return sorted({track["artist"] for track in self.get_all_tracks() if track.get("artist")})
@@ -250,30 +347,23 @@ class LibraryManager:
     def get_albums(self) -> List[Dict]:
         albums: Dict = {}
         for track in self.get_all_tracks():
-            # The downloader stores every album in its own directory. That
-            # directory is the stable album identity; per-track ``artist``
-            # tags are contributing artists and legitimately vary for
-            # collaborations within the same album.
-            file_path = os.path.normpath(track.get("file_path") or "")
-            folder_path = os.path.dirname(file_path)
-            key = os.path.normcase(folder_path)
-            album_name = os.path.basename(folder_path) or track.get("album") or "Unknown Album"
-
-            # A malformed path should not collapse every such track into one
-            # empty-key group. Metadata is only a last-resort identity here.
-            if not key:
-                key = f"metadata::{str(album_name).casefold()}"
+            album_name = (track.get("album") or "").strip()
+            if not album_name or album_name.casefold() == "unknown album":
+                continue
+            artist = (track.get("album_artist") or track.get("artist") or "Unknown Artist").strip()
+            key = json.dumps([album_name.casefold(), artist.casefold()], ensure_ascii=False)
             if key not in albums:
                 albums[key] = {
-                    "folder_path": folder_path,
-                    "artist": track.get("artist"),
+                    "id": key,
+                    "folder_path": os.path.dirname(track.get("file_path") or ""),
+                    "artist": artist,
                     "album": album_name,
                     "tracks": [],
                 }
             albums[key]["tracks"].append(track)
         return sorted(
             albums.values(),
-            key=lambda album: _natural_name_key(str(album.get("album") or "")),
+            key=lambda album: (_natural_name_key(album["album"]), _natural_name_key(album["artist"])),
         )
 
     def search(self, query: str) -> List[Dict]:
@@ -286,6 +376,7 @@ class LibraryManager:
             if normalised_query in (track.get("title") or "").lower()
             or normalised_query in (track.get("artist") or "").lower()
             or normalised_query in (track.get("album") or "").lower()
+            or normalised_query in os.path.basename(track.get("file_path") or "").lower()
         ]
 
 

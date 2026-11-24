@@ -237,7 +237,9 @@ def test_cover_art_survives_a_missing_cache_directory(tmp_path, monkeypatch):
         tags = {}
 
     manager = library_manager.LibraryManager()
-    cached = manager._cache_art(str(tmp_path / "Album" / "track.flac"), _AudioWithPicture())
+    track = tmp_path / "track.flac"
+    track.touch()
+    cached = manager._cache_art(str(track), _AudioWithPicture())
 
     assert cached is not None, "artwork was dropped because the cache dir was missing"
     assert os.path.exists(cached)

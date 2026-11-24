@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
 import StatusBar from './components/StatusBar';
 import MiniPlayer from './components/MiniPlayer';
@@ -12,6 +12,7 @@ import Library from './pages/Library';
 import History from './pages/History';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
+import AudioEffects from './pages/AudioEffects';
 import About from './pages/About';
 import { useAppStore } from './store/useAppStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -21,15 +22,23 @@ function App() {
   const refreshStatus = useAppStore((s) => s.refreshStatus);
   const checkSetup = useAppStore((s) => s.checkSetup);
   const markSetupComplete = useAppStore((s) => s.markSetupComplete);
+  const markLibraryOnly = useAppStore((s) => s.markLibraryOnly);
   const loginOpen = useAppStore((s) => s.loginModalOpen);
   const setupComplete = useAppStore((s) => s.setupComplete);
+  const libraryOnly = useAppStore((s) => s.libraryOnly);
+  const [startingDownloads, setStartingDownloads] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     checkSetup();
+  }, [checkSetup]);
+
+  useEffect(() => {
+    if (!setupComplete) return;
     refreshStatus();
     const id = setInterval(refreshStatus, 5000);
     return () => clearInterval(id);
-  }, [refreshStatus, checkSetup]);
+  }, [refreshStatus, setupComplete]);
 
   useEffect(() => {
     if (!electronAPI.adjustZoom) return;
@@ -51,6 +60,7 @@ function App() {
 
   // Fire a Windows notification whenever a download finishes.
   useWebSocket('/ws/progress', {
+    enabled: setupComplete === true,
     onMessage: (data) => {
       if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'convert_failed') {
         const partial = (data.converted || 0) > 0 && ((data.failed || 0) > 0 || data.status === 'convert_failed');
@@ -67,10 +77,39 @@ function App() {
     },
   });
 
-  // Show the first-run wizard until setup is complete.
-  if (setupComplete === false) {
-    return <SetupWizard onComplete={markSetupComplete} />;
+  if (setupComplete === null) {
+    return <div className="grid h-screen place-items-center bg-surface-void text-sm text-gray-400" role="status">Opening Audora…</div>;
   }
+
+  if (!setupComplete && (!libraryOnly || startingDownloads)) {
+    return <SetupWizard
+      onComplete={() => {
+        markSetupComplete();
+        setStartingDownloads(false);
+      }}
+      onLocalLibrary={() => {
+        markLibraryOnly();
+        navigate('/library', { replace: true });
+      }}
+      onReturnToLibrary={libraryOnly ? () => {
+        setStartingDownloads(false);
+        navigate('/library');
+      } : undefined}
+    />;
+  }
+
+  const downloadSetup = (
+    <section className="glass relative mt-2 max-w-lg rounded-2xl p-6">
+      <div className="relative z-10 space-y-4">
+        <h1 className="text-xl font-semibold text-gray-100">Apple Music downloads</h1>
+        <p className="text-sm text-gray-400">Set up Docker and sign in to Apple Music to download tracks. You can keep listening to your local library any time.</p>
+        <button type="button" onClick={() => setStartingDownloads(true)}
+          className="rounded-xl bg-audora-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-audora-400">
+          Set up downloads
+        </button>
+      </div>
+    </section>
+  );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-void text-gray-100">
@@ -78,8 +117,9 @@ function App() {
       <main className="scrollbar-thin flex-1 overflow-y-auto px-8 pb-6">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/download" element={<Download />} />
-          <Route path="/queue" element={<Queue />} />
+          <Route path="/download" element={libraryOnly ? downloadSetup : <Download />} />
+          <Route path="/queue" element={libraryOnly ? downloadSetup : <Queue />} />
+          <Route path="/audio-effects" element={<AudioEffects />} />
           <Route path="/library" element={<Library />} />
           <Route path="/history" element={<History />} />
           <Route path="/logs" element={<Logs />} />
@@ -89,7 +129,7 @@ function App() {
       </main>
       <MiniPlayer />
       <StatusBar />
-      {loginOpen && <LoginModal />}
+      {!libraryOnly && loginOpen && <LoginModal />}
     </div>
   );
 }

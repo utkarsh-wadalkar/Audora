@@ -1,12 +1,9 @@
 """Tests for the centralized Windows/Linux runtime policy.
 
-The failures these tests guard against are a Linux package writing into its
-read-only application resources or a Windows package silently changing its
-established backend/download defaults.
+The tests verify per-user defaults and platform-specific Docker capabilities.
 """
 import os
 import sys
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,17 +31,17 @@ def test_linux_uses_electron_provided_data_and_download_paths(tmp_path):
     assert runtime.requires_wsl is False
 
 
-def test_windows_preserves_the_legacy_backend_and_download_defaults(tmp_path):
+def test_windows_defaults_use_the_current_users_paths(tmp_path):
     runtime = create_runtime_platform(
         system="Windows",
         machine="AMD64",
-        environ={},
+        environ={"USERPROFILE": str(tmp_path / "home")},
         legacy_data_dir=tmp_path / "legacy-data",
     )
 
     assert runtime.data_dir == tmp_path / "legacy-data"
-    assert runtime.default_downloads_dir == r"D:\apple-music-dl\downloads"
-    assert runtime.default_wrapper_data_dir == Path(r"D:\apple-music-dl\wrapper\rootfs\data")
+    assert runtime.default_downloads_dir == str(tmp_path / "home" / "Music" / "Audora")
+    assert runtime.default_wrapper_data_dir == tmp_path / "legacy-data" / "wrapper" / "rootfs" / "data"
     assert runtime.docker_install_label == "Docker Desktop"
     assert runtime.backend_executable == "backend.exe"
     assert runtime.supports_docker_desktop_start is True

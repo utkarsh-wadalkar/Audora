@@ -19,6 +19,8 @@ _SETTINGS_PATH = os.path.join(_DATA_DIR, "settings.json")
 
 DEFAULTS: Dict[str, Any] = {
     "downloads_path": get_runtime_platform().default_downloads_dir,
+    "library_path": None,
+    "library_only": False,
     "wrapper_data_path": str(get_runtime_platform().default_wrapper_data_dir),
     "auto_start_wrapper": True,
     "backend_port": 8000,

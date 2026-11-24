@@ -1,5 +1,6 @@
-import { Circle, Container, Server, User } from 'lucide-react';
+import { Circle, Container, Library, Server, User } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import UpdateIndicator from './UpdateIndicator';
 
 // NOTE: lucide-react has no "Docker" icon; "Container" is the closest fit.
 export default function StatusBar() {
@@ -7,6 +8,7 @@ export default function StatusBar() {
   const wrapperStatus = useAppStore((s) => s.wrapperStatus);
   const authStatus = useAppStore((s) => s.authStatus);
   const openLogin = useAppStore((s) => s.openLogin);
+  const libraryOnly = useAppStore((s) => s.libraryOnly);
 
   const StatusDot = ({ ok }: { ok: boolean }) => (
     <Circle
@@ -17,6 +19,10 @@ export default function StatusBar() {
 
   return (
     <div className="flex h-7 shrink-0 items-center gap-6 px-8 pb-1 text-[11px] text-gray-500">
+      <UpdateIndicator />
+      {libraryOnly ? (
+        <div className="flex items-center gap-2"><Library size={12} /> Local library</div>
+      ) : <>
       <div className="flex items-center gap-2">
         <Container size={12} />
         <StatusDot ok={dockerStatus} />
@@ -35,6 +41,7 @@ export default function StatusBar() {
         <StatusDot ok={authStatus} />
         <span>{authStatus ? 'Signed in' : 'Sign in'}</span>
       </button>
+      </>}
     </div>
   );
 }

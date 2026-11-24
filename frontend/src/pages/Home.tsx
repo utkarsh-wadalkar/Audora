@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Music, Play, Search, RotateCw, Heart } from 'lucide-react';
-import { api, API_BASE } from '../api/client';
+import { Play, Search, RotateCw, Heart } from 'lucide-react';
+import { api } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import type { Track } from '../store/useAppStore';
+import TrackArtwork from '../components/TrackArtwork';
 import { formatDuration, formatSize } from '../lib/format';
 
 interface AlbumGroup {
@@ -11,29 +12,6 @@ interface AlbumGroup {
   artist?: string;
   album?: string;
   tracks: Track[];
-}
-
-/** Square album art with a graceful fallback when a track has no embedded image. */
-function AlbumArt({ trackId, size = 18 }: { trackId?: number; size?: number }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!trackId || failed) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-white/[0.04] text-gray-600">
-        <Music size={size} />
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={`${API_BASE}/library/art/${trackId}`}
-      alt=""
-      loading="lazy"
-      className="h-full w-full object-cover"
-      onError={() => setFailed(true)}
-    />
-  );
 }
 
 export default function Home() {
@@ -82,7 +60,7 @@ export default function Home() {
     const playingIndex = currentTrack
       ? tracks.findIndex((track) => track.id === currentTrack.id)
       : -1;
-    return tracks.slice(playingIndex + 1, playingIndex + 7);
+    return tracks.slice(playingIndex + 1);
   }, [tracks, currentTrack]);
 
   const retryJob = async (jobId: number) => {
@@ -119,7 +97,7 @@ export default function Home() {
                 }`}
               >
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
-                  <AlbumArt trackId={track.id} size={14} />
+                  <TrackArtwork track={track} size={14} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-gray-100">{track.title}</p>
@@ -158,7 +136,7 @@ export default function Home() {
                   className="group w-44 shrink-0 text-left"
                 >
                   <div className="relative mb-3 aspect-square overflow-hidden rounded-xl border border-white/[0.08] shadow-glass">
-                    <AlbumArt trackId={firstTrack.id} size={28} />
+                    <TrackArtwork track={firstTrack} size={28} />
                     <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-3 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-audora-500 text-white shadow-knob">
                         <Play size={15} fill="currentColor" className="ml-0.5" />
@@ -178,7 +156,7 @@ export default function Home() {
 
       <div className="grid grid-cols-2 gap-6">
         <section className="space-y-4">
-          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-gray-100">
+          <h2 id="next-up-heading" className="flex items-center gap-2 text-xl font-semibold tracking-tight text-gray-100">
             Next up
           </h2>
           {nextUp.length === 0 ? (
@@ -196,7 +174,12 @@ export default function Home() {
               )}
             </p>
           ) : (
-            <div className="glass overflow-hidden rounded-2xl">
+            <div
+              role="region"
+              aria-labelledby="next-up-heading"
+              tabIndex={0}
+              className="glass scrollbar-thin max-h-[min(24rem,50vh)] overflow-y-auto rounded-2xl"
+            >
               {nextUp.map((track, index) => (
                 <div
                   key={track.file_path}
@@ -209,7 +192,7 @@ export default function Home() {
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
                     <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg">
-                      <AlbumArt trackId={track.id} size={14} />
+                      <TrackArtwork track={track} size={14} />
                       <span className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover:opacity-100">
                         <Play size={13} fill="currentColor" className="text-white" />
                       </span>

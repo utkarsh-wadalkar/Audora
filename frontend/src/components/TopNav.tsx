@@ -4,6 +4,7 @@ import {
   DownloadCloud,
   Library,
   ListMusic,
+  SlidersHorizontal,
   History,
   FileText,
   Settings,
@@ -12,13 +13,14 @@ import {
 
 /**
  * Primary destinations live in the centre pill rail. Utility destinations sit
- * in the right-hand icon cluster so the rail stays legible at eight routes.
+ * in the right-hand icon cluster.
  */
 const primaryRoutes = [
   { to: '/', icon: Disc3, label: 'Listen' },
   { to: '/download', icon: DownloadCloud, label: 'Download' },
   { to: '/library', icon: Library, label: 'Library' },
   { to: '/queue', icon: ListMusic, label: 'Download queue' },
+  { to: '/audio-effects', icon: SlidersHorizontal, label: 'Audio effects' },
 ];
 
 const utilityRoutes = [

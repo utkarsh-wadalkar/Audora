@@ -2,10 +2,12 @@
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from desktop_access import DesktopAccessMiddleware, FILE_ORIGINS, LOOPBACK_ORIGIN
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -23,7 +25,7 @@ from docker_manager import docker_mgr
 from wrapper_manager import wrapper_mgr
 from auth_manager import auth_mgr
 from download_manager import dl_mgr
-from library_manager import lib_mgr
+from library_manager import AUDIO_MIME_TYPES, LibraryFolderUnavailable, lib_mgr
 from queue_processor import queue_processor
 from setup_manager import setup_mgr
 from diagnostics import collect_diagnostics
@@ -215,9 +217,9 @@ async def lifespan(app: FastAPI):
     global _loop
     _loop = asyncio.get_running_loop()
 
+    init_db()
     settings = get_settings()
     setup_logger(settings.get("log_level", "INFO"))
-    init_db()
     logger.info("Audora backend starting...")
 
     # Load any previously-scanned library into memory.
@@ -267,20 +269,21 @@ app = FastAPI(title="Audora Backend", version="1.5.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    # Local desktop app: allow any origin (Electron file:// sends a null
-    # origin). We don't use cookie auth, so credentials must be False for the
-    # "*" wildcard to be honoured by browsers (CORS spec forbids "*" + creds).
-    allow_origins=["*"],
+    # Electron's packaged file renderer authenticates separately. A browser
+    # may use the API during local Vite development.
+    allow_origins=FILE_ORIGINS,
+    allow_origin_regex=LOOPBACK_ORIGIN,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(DesktopAccessMiddleware)
 
 
 # --- Health & Docker ---
 @app.get("/health")
 def health():
-    data = {"status": "ok"}
+    data = {"status": "ok", "download_running": dl_mgr.is_running}
     smoke_token = os.environ.get("AUDORA_SMOKE_TOKEN")
     if smoke_token:
         data["smoke_token"] = smoke_token
@@ -674,7 +677,10 @@ def get_library():
 
 @app.post("/library/scan", response_model=ApiResponse)
 def scan_library():
-    tracks = lib_mgr.scan_library()
+    try:
+        tracks = lib_mgr.scan_library()
+    except LibraryFolderUnavailable as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return ApiResponse(success=True, data={"track_count": len(tracks)})
 
 
@@ -705,37 +711,44 @@ def stream_track(track_id: int):
     track = lib_mgr.get_track_by_id(track_id)
     if not track or not os.path.exists(track["file_path"]):
         raise HTTPException(status_code=404, detail="Track not found")
-    return FileResponse(track["file_path"], media_type="audio/flac")
+    path = track["file_path"]
+    media_type = AUDIO_MIME_TYPES.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, headers={"X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/library/art/{track_id}")
-def track_art(track_id: int):
+def track_art(track_id: int, v: str | None = None):
     track = lib_mgr.get_track_by_id(track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    art_path = lib_mgr.get_art_path(track)
+    art_path = lib_mgr.get_art_path(track, v)
     if not art_path or not os.path.exists(art_path):
         raise HTTPException(status_code=404, detail="No album art")
-    return FileResponse(art_path, media_type=_sniff_image_type(art_path))
+    return FileResponse(
+        art_path,
+        media_type=_sniff_image_type(art_path),
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 def _sniff_image_type(path: str) -> str:
     """Detect the real image type from its magic bytes.
 
-    The cache file is named ``.png`` but the embedded artwork is usually JPEG
-    (the downloader is configured with ``cover-format: jpg``), so the extension
-    cannot be trusted. Browsers sniff anyway; sending the correct type keeps the
-    response honest.
+    The cache uses a neutral extension because embedded artwork varies by file.
     """
     try:
         with open(path, "rb") as handle:
-            header = handle.read(8)
+            header = handle.read(12)
     except OSError:
         return "application/octet-stream"
     if header.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if header.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
     return "application/octet-stream"
 
 
@@ -751,22 +764,38 @@ def read_settings():
     return ApiResponse(success=True, data=get_settings())
 
 
+def readable_music_folder(value: str) -> str:
+    try:
+        folder = Path(value.strip()).expanduser()
+        if not folder.is_absolute():
+            raise ValueError("Expected an absolute directory path")
+        folder = folder.resolve(strict=True)
+        with os.scandir(folder) as entries:
+            next(entries, None)
+        return str(folder)
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Choose an existing music folder Audora can read.") from error
+
+
 @app.post("/settings", response_model=ApiResponse)
 def write_settings(req: SettingsUpdate):
     previous = get_settings()
     patch = req.model_dump(exclude_unset=True)
+    for key in ("library_path", "downloads_path"):
+        if key in patch and patch[key] != previous.get(key):
+            if key == "library_path" and patch[key] is None and not previous.get("library_only"):
+                continue
+            folder = readable_music_folder(patch[key] or "")
+            patch.update(library_path=folder, downloads_path=folder)
+            break
     updated = update_settings(patch)
 
-    # The library cache and database reflect the tree under downloads_path.
-    # Refresh immediately when that root changes so Settings never leaves the
-    # old folder's albums visible until a manual or post-download rescan.
-    previous_downloads = os.path.normcase(
-        os.path.normpath(str(previous.get("downloads_path") or ""))
+    folder_changed = any(
+        key in patch and os.path.normcase(os.path.normpath(str(previous.get(key) or "")))
+        != os.path.normcase(os.path.normpath(str(updated.get(key) or "")))
+        for key in ("downloads_path", "library_path")
     )
-    updated_downloads = os.path.normcase(
-        os.path.normpath(str(updated.get("downloads_path") or ""))
-    )
-    if "downloads_path" in patch and previous_downloads != updated_downloads:
+    if folder_changed:
         lib_mgr.scan_library()
 
     return ApiResponse(success=True, data=updated)
@@ -774,11 +803,28 @@ def write_settings(req: SettingsUpdate):
 
 # --- Setup (first-run wizard) ---
 @app.get("/setup/status", response_model=ApiResponse)
-def setup_status():
-    return ApiResponse(
-        success=True,
-        data={"complete": setup_mgr.is_complete(), **setup_mgr.check_system()},
-    )
+def setup_status(include_system: bool = True):
+    settings = get_settings()
+    complete = bool(settings.get("setup_complete"))
+    library_only = bool(settings.get("library_only") and not complete)
+    status = {"complete": complete, "library_only": library_only}
+    if include_system:
+        status.update(setup_mgr.check_system())
+    return ApiResponse(success=True, data=status)
+
+
+class LocalLibrarySetupRequest(BaseModel):
+    folder: str
+
+
+@app.post("/setup/local-library", response_model=ApiResponse)
+def setup_local_library(req: LocalLibrarySetupRequest):
+    if setup_mgr.is_complete():
+        raise HTTPException(status_code=409, detail="Audora is already set up. Open Settings to change the music folder.")
+    folder = readable_music_folder(req.folder)
+    tracks = lib_mgr.scan_library(local_folder=folder)
+    update_settings({"library_only": True, "library_path": folder, "downloads_path": folder})
+    return ApiResponse(success=True, data={"track_count": len(tracks)})
 
 
 @app.post("/setup/check", response_model=ApiResponse)
@@ -908,6 +954,4 @@ async def ws_wrapper(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
 
-    _settings = get_settings()
-    setup_logger(_settings.get("log_level", "INFO"))
     uvicorn.run(app, host="127.0.0.1", port=get_backend_port(os.environ))

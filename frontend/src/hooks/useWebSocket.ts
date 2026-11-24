@@ -4,6 +4,7 @@ import { WS_BASE } from '../api/client';
 type ReadyState = 'connecting' | 'open' | 'closing' | 'closed';
 
 interface Options {
+  enabled?: boolean;
   /** Called for every parsed JSON message. */
   onMessage?: (data: any) => void;
   /** Auto-reconnect on close (default true). */
@@ -18,7 +19,7 @@ interface Options {
  * @param path e.g. "/ws/logs", "/ws/progress", "/ws/auth"
  */
 export function useWebSocket(path: string, options: Options = {}) {
-  const { onMessage, reconnect = true, reconnectDelay = 2000 } = options;
+  const { enabled = true, onMessage, reconnect = true, reconnectDelay = 2000 } = options;
   const [readyState, setReadyState] = useState<ReadyState>('connecting');
   const [lastMessage, setLastMessage] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -32,8 +33,9 @@ export function useWebSocket(path: string, options: Options = {}) {
     wsRef.current = ws;
     setReadyState('connecting');
 
-    ws.onopen = () => setReadyState('open');
+    ws.onopen = () => { if (wsRef.current === ws) setReadyState('open'); };
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       setReadyState('closed');
       if (reconnect && !closedByUser.current) {
         timerRef.current = setTimeout(connect, reconnectDelay);
@@ -41,6 +43,7 @@ export function useWebSocket(path: string, options: Options = {}) {
     };
     ws.onerror = () => ws.close();
     ws.onmessage = (e) => {
+      if (wsRef.current !== ws) return;
       let data: any = e.data;
       try {
         data = JSON.parse(e.data);
@@ -53,14 +56,17 @@ export function useWebSocket(path: string, options: Options = {}) {
   }, [path, reconnect, reconnectDelay]);
 
   useEffect(() => {
+    if (!enabled) return;
     closedByUser.current = false;
     connect();
     return () => {
       closedByUser.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      wsRef.current?.close();
+      const socket = wsRef.current;
+      wsRef.current = null;
+      socket?.close();
     };
-  }, [connect]);
+  }, [connect, enabled]);
 
   const send = useCallback((msg: string | object) => {
     const ws = wsRef.current;

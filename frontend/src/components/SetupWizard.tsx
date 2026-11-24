@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, X, Loader2, Music, Download as DownloadIcon, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Check, X, Loader2, Music, Download as DownloadIcon, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAppStore, type SetupProgressEvent, type SetupStepState } from '../store/useAppStore';
@@ -11,6 +11,8 @@ import SetupTerminalPanel, {
   type TerminalLine,
 } from './SetupTerminalPanel';
 import OfflineBanner from './OfflineBanner';
+import LocalLibrarySetup from './LocalLibrarySetup';
+import { setupConnectionError } from '../lib/setupErrors';
 
 interface SystemCheck {
   platform: { ok: boolean; label: string };
@@ -23,7 +25,7 @@ interface SystemCheck {
   };
 }
 
-type Screen = 'welcome' | 'system' | 'images' | 'signin' | 'done';
+type Screen = 'welcome' | 'local-library' | 'system' | 'images' | 'signin' | 'done';
 
 type CheckState =
   | { status: 'idle' | 'checking' }
@@ -90,8 +92,13 @@ function failureHeadline(step: SetupStepState, stepId?: string): string {
   }
 }
 
-export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
-  const [screen, setScreen] = useState<Screen>('welcome');
+export default function SetupWizard({ onComplete, onLocalLibrary, onReturnToLibrary }: {
+  onComplete: () => void;
+  onLocalLibrary: () => void;
+  onReturnToLibrary?: () => void;
+}) {
+  const [screen, setScreen] = useState<Screen>(onReturnToLibrary ? 'system' : 'welcome');
+  const configuringDownloads = screen !== 'welcome' && screen !== 'local-library';
   const [check, setCheck] = useState<SystemCheck | null>(null);
   const [checkState, setCheckState] = useState<CheckState>({ status: 'idle' });
   const checkInFlight = useRef(false);
@@ -133,8 +140,8 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
   // Seed once on mount.
   useEffect(() => {
-    seedFromStatus();
-  }, [seedFromStatus]);
+    if (configuringDownloads) seedFromStatus();
+  }, [seedFromStatus, configuringDownloads]);
 
   // Append-only log for the terminal panel. The store keys steps by id and
   // overwrites, which is right for the step rows but loses history — the
@@ -207,6 +214,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   // lost across a drop — the seed only fills gaps and never downgrades a live
   // step.
   const { readyState } = useWebSocket('/ws/setup', {
+    enabled: configuringDownloads,
     onMessage: (data) => {
       if (data?.type === 'setup_progress') {
         const event = data as SetupProgressEvent;
@@ -228,6 +236,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   }, [readyState, seedFromStatus]);
 
   useWebSocket('/ws/auth', {
+    enabled: configuringDownloads,
     onMessage: (data) => {
       if (data?.type === 'auth_2fa_required') {
         setNeed2fa(true);
@@ -236,7 +245,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       } else if (data?.type === 'auth_success') {
         setAuthMsg(data.message);
         setBusy(false);
-        setScreen('done');
+        setScreen((current) => current === 'signin' ? 'done' : current);
       } else if (data?.type === 'auth_error') {
         setAuthErr(data.message);
         setBusy(false);
@@ -251,6 +260,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   });
 
   useWebSocket('/ws/wrapper', {
+    enabled: configuringDownloads,
     onMessage: (data) => {
       if (data?.type !== 'wrapper_log') return;
       const sequence = Number(data.sequence) || 0;
@@ -273,10 +283,12 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       if (!r.data?.success || !r.data.data) throw new Error('System check failed');
       setCheck(r.data.data);
       setCheckState({ status: 'success', checkedAt: new Date().toLocaleTimeString() });
-    } catch {
+    } catch (error) {
+      setCheck(null);
       setCheckState({
         status: 'error',
-        message: 'Could not check your system. Click Check again to retry. If this keeps happening, restart Audora.',
+        message: setupConnectionError(error, 'Check again')
+          ?? 'Could not check your system. Select Check again to retry. To play local music now, go back to setup options.',
       });
     } finally {
       checkInFlight.current = false;
@@ -322,7 +334,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       setBusy(false);
       if (state === 'authenticated') {
         setAuthMsg('Saved session detected.');
-        setScreen('done');
+        setScreen((current) => current === 'signin' ? 'done' : current);
       } else if (state === 'needs_2fa') {
         setNeed2fa(true);
         setAuthMsg('Enter your 6-digit verification code');
@@ -451,6 +463,10 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       ? 'All components downloaded.'
       : undefined;
 
+  if (screen === 'local-library') {
+    return <LocalLibrarySetup onBack={() => setScreen('welcome')} onComplete={onLocalLibrary} />;
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-void p-8">
       <OfflineBanner visible={isOffline} />
@@ -459,6 +475,12 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           growing the row and pushing the card off-screen. */}
       <div className="flex w-full max-w-5xl items-stretch justify-center gap-6">
         <div className="glass w-full max-w-lg shrink-0 rounded-3xl p-8">
+        {screen !== 'welcome' && (
+          <button type="button" onClick={onReturnToLibrary ?? (() => setScreen('welcome'))}
+            className="relative z-10 mb-4 flex items-center gap-2 text-sm text-gray-400 hover:text-white">
+            <ArrowLeft size={16} /> {onReturnToLibrary ? 'Back to library' : 'Back to setup options'}
+          </button>
+        )}
         {/* Persistent breadcrumb (QC_plan §4.1) — hidden on the welcome splash. */}
         {screen !== 'welcome' && (
           <div className="flex items-center gap-1.5 mb-6 text-[11px] flex-wrap">
@@ -499,24 +521,23 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             </div>
             <div className="space-y-2.5">
               <h1 className="text-3xl font-semibold leading-tight tracking-tight text-gray-100">
-                Your Apple Music,
-                <br />
-                downloaded in lossless.
+                Welcome to Audora
               </h1>
               <p className="max-w-sm text-sm leading-relaxed text-gray-400">
-                Setup takes a few minutes and runs once. Audora will check your system,
-                fetch what it needs, and sign you in.
+                Set up Apple Music downloads or open a folder of music you already have.
               </p>
             </div>
             <button
               onClick={() => setScreen('system')}
               className="w-full rounded-xl bg-audora-500 px-6 py-3.5 text-sm font-medium text-white shadow-knob transition-[background-color,transform] duration-300 ease-out hover:bg-audora-400 active:scale-[0.99]"
             >
-              Get started
+              Set up Apple Music downloads
             </button>
-            <p className="text-xs text-gray-500">
-              An active Apple Music subscription is required.
-            </p>
+            <button type="button" onClick={() => setScreen('local-library')}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-6 py-3.5 text-sm font-medium text-gray-100 hover:bg-white/10">
+              Continue with local music
+            </button>
+            <p className="text-xs text-gray-500">Apple Music downloads require an active subscription.</p>
           </div>
         )}
 

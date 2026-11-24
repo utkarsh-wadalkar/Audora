@@ -30,8 +30,78 @@ async function openWizard(page: Page, check: (route: Route) => Promise<void>, ev
     });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Get started' }).click();
+  await page.getByRole('button', { name: 'Set up Apple Music downloads' }).click();
 }
+
+test('existing music opens and stays available without download setup', async ({ page }) => {
+  const folder = 'E:\\My Music';
+  let configured = false;
+  let rejectConnection = true;
+  let systemChecks = 0;
+  const downloadRequests: string[] = [];
+  await page.addInitScript((selection) => {
+    Object.assign(window, { electronAPI: { selectFolder: async () => selection } });
+  }, folder);
+  const track = { id: 1, title: 'Local song', file_path: folder + '\\Local song.flac', duration: 60, file_size: 120 };
+  await page.routeWebSocket(/ws:\/\/localhost:8000\/.*/, (socket) => {
+    downloadRequests.push(new URL(socket.url()).pathname);
+  });
+  await page.route('http://localhost:8000/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/setup/local-library') {
+      if (route.request().postDataJSON().folder !== folder) {
+        return route.fulfill({ status: 400, json: { detail: 'Choose an existing music folder Audora can read.' } });
+      }
+      if (rejectConnection) {
+        rejectConnection = false;
+        return route.fulfill({ status: 403, json: { detail: 'Unauthorized desktop request' } });
+      }
+      configured = true;
+      return route.fulfill({ json: { success: true, data: { track_count: 1 } } });
+    }
+    if (url.pathname === '/setup/check') systemChecks++;
+    if (url.pathname.startsWith('/docker/') || url.pathname.startsWith('/auth/') ||
+        (url.pathname === '/setup/status' && url.searchParams.get('include_system') !== 'false')) {
+      downloadRequests.push(url.pathname);
+    }
+    const data = url.pathname === '/setup/status' ? { complete: false, library_only: configured, ...system(true) } :
+      url.pathname === '/setup/check' ? system(true) :
+      url.pathname === '/settings' ? { library_path: folder, downloads_path: 'C:\\Downloads' } :
+      url.pathname === '/library' && configured ? [track] : [];
+    await route.fulfill({ json: { success: true, data } });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Continue with local music' }).click();
+  const open = page.getByRole('button', { name: 'Open library' });
+  await expect(page.getByRole('heading', { name: 'Already have music downloaded?' })).toBeVisible();
+  await expect(open).toBeDisabled();
+  await page.getByLabel('Music folder', { exact: true }).fill('E:\\Missing');
+  await open.click();
+  await expect(page.getByRole('alert')).toContainText('reconnect the drive');
+  const input = page.getByLabel('Music folder', { exact: true });
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await open.click();
+  await expect(page.getByRole('alert')).toContainText('local service rejected the connection');
+  await expect(input).toHaveValue(folder);
+  await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+  await open.click();
+  await expect(page.getByRole('button', { name: 'Play Local song', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Play Local song', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Settings' }).click();
+  await expect(page.getByLabel('Music library folder', { exact: true })).toHaveValue(folder);
+  expect(downloadRequests).toEqual([]);
+  expect(systemChecks).toBe(0);
+
+  await page.getByRole('link', { name: 'Download', exact: true }).click();
+  await page.getByRole('button', { name: 'Set up downloads' }).click();
+  await expect(page.getByRole('heading', { name: 'Checking your system' })).toBeVisible();
+  await expect.poll(() => systemChecks).toBe(1);
+  await page.getByRole('button', { name: 'Back to library' }).click();
+  await expect(page.getByRole('button', { name: 'Play Local song', exact: true })).toBeVisible();
+});
 
 test('initial check shows progress and enables Continue only after the result', async ({ page }) => {
   let pending!: Route;
@@ -91,7 +161,7 @@ test('a failed refresh disables stale Continue and can be retried successfully',
   await expect.poll(() => requests).toBe(2);
   await pending.abort('failed');
 
-  await expect(page.getByRole('alert')).toContainText('Could not check your system');
+  await expect(page.getByRole('alert')).toContainText('couldn’t reach its local service');
   await expect(next).toBeDisabled();
   await expect(retry).toBeEnabled();
   await retry.click();
@@ -109,12 +179,21 @@ test('an initial API error offers a retry instead of an endless loader', async (
   await expect(page.getByText('Looking at your setup…')).toHaveCount(0);
 });
 
+test('a rejected desktop connection points to recovery without blaming Docker', async ({ page }) => {
+  await openWizard(page, async (route) => {
+    await route.fulfill({ status: 403, json: { detail: 'Unauthorized desktop request' } });
+  });
+  await expect(page.getByRole('alert')).toContainText('local service rejected the connection');
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Back to setup options' })).toBeEnabled();
+});
+
 test('a timed out check releases the button and explains how to retry', async ({ page }) => {
   let requests = 0;
   await openWizard(page, async () => { requests += 1; });
   await expect.poll(() => requests).toBe(1);
 
-  await expect(page.getByRole('alert')).toContainText('Could not check your system', { timeout: 20000 });
+  await expect(page.getByRole('alert')).toContainText('took too long to respond', { timeout: 20000 });
   await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeEnabled();
 });
 

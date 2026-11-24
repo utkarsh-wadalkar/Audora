@@ -664,7 +664,7 @@ class SetupManager:
 
 
     def mark_complete(self) -> None:
-        update_settings({"setup_complete": True})
+        update_settings({"setup_complete": True, "library_only": False})
 
     def is_complete(self) -> bool:
         return bool(get_settings().get("setup_complete", False))

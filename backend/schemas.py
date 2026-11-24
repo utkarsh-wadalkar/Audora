@@ -86,6 +86,7 @@ class TrackOut(BaseModel):
 # --- Settings ---
 class SettingsUpdate(BaseModel):
     downloads_path: Optional[str] = None
+    library_path: Optional[str] = None
     wrapper_data_path: Optional[str] = None
     auto_start_wrapper: Optional[bool] = None
     backend_port: Optional[int] = None

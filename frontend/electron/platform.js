@@ -36,14 +36,21 @@ function createBackendLaunchSpec({
 
   const backendName = platform === 'win32' ? 'backend.exe' : 'backend';
   const backendEnv = { ...env };
-  if (platform === 'linux') {
-    const resolvedUserDataPath = userDataPath || getAppPath?.('userData');
-    const resolvedMusicPath = musicPath || getAppPath?.('music');
-    if (!resolvedUserDataPath || !resolvedMusicPath) {
-      throw new Error('Linux backend launch requires Electron userData and music paths');
+  const resolvedUserDataPath = userDataPath || getAppPath?.('userData');
+  if (!resolvedUserDataPath) throw new Error('Packaged backend launch requires Electron userData');
+  backendEnv.AUDORA_DATA_DIR = platformPath.join(resolvedUserDataPath, 'backend');
+  if (!backendEnv.AUDORA_DOWNLOADS_DIR) {
+    let resolvedMusicPath = musicPath;
+    if (!resolvedMusicPath) {
+      try {
+        resolvedMusicPath = getAppPath?.('music');
+      } catch {
+        // The backend can use the home directory if Electron lacks a Music location.
+      }
     }
-    backendEnv.AUDORA_DATA_DIR = platformPath.join(resolvedUserDataPath, 'backend');
-    backendEnv.AUDORA_DOWNLOADS_DIR = platformPath.join(resolvedMusicPath, 'Audora');
+    if (resolvedMusicPath) {
+      backendEnv.AUDORA_DOWNLOADS_DIR = platformPath.join(resolvedMusicPath, 'Audora');
+    }
   }
 
   return {

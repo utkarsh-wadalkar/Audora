@@ -21,7 +21,7 @@ test('Linux packaged launch uses the native backend and per-user writable paths'
   assert.equal(spec.options.env.KEEP_ME, 'yes');
 });
 
-test('Windows packaged launch retains backend.exe without Linux environment overrides', () => {
+test('Windows packaged launch stores backend state outside application resources', () => {
   const spec = createBackendLaunchSpec({
     platform: 'win32',
     isDev: false,
@@ -32,12 +32,12 @@ test('Windows packaged launch retains backend.exe without Linux environment over
   });
 
   assert.equal(spec.command, 'C:\\App\\resources\\backend\\backend.exe');
-  assert.equal(spec.options.env.AUDORA_DATA_DIR, undefined);
-  assert.equal(spec.options.env.AUDORA_DOWNLOADS_DIR, undefined);
+  assert.equal(spec.options.env.AUDORA_DATA_DIR, 'C:\\Users\\a\\AppData\\Roaming\\Audora\\backend');
+  assert.equal(spec.options.env.AUDORA_DOWNLOADS_DIR, 'C:\\Users\\a\\Music\\Audora');
   assert.equal(spec.options.env.KEEP_ME, 'yes');
 });
 
-test('Windows packaged launch does not request a Music directory it never uses', () => {
+test('Windows packaged launch allows the backend to fall back when Music is unavailable', () => {
   const spec = createBackendLaunchSpec({
     platform: 'win32',
     isDev: false,
@@ -50,6 +50,7 @@ test('Windows packaged launch does not request a Music directory it never uses',
   });
 
   assert.equal(spec.command, 'C:\\App\\resources\\backend\\backend.exe');
+  assert.equal(spec.options.env.AUDORA_DOWNLOADS_DIR, undefined);
 });
 
 test('Linux development launch uses the virtual-environment Python executable', () => {

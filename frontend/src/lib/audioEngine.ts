@@ -1,34 +1,48 @@
 /** One playback graph for streaming, effects, output routing, and transitions. */
 
-export interface AudioSettings {
-  eqEnabled: boolean;
-  eq: number[];
-  compressor: boolean;
-  compressorThreshold: number;
-  compressorRatio: number;
+import { createSpatializer, createStereoWidth, DEFAULT_SPATIALIZER, readSpatializerSettings } from './spatializer';
+import type { SpatializerSettings } from './spatializer';
+import {
+  createAdvancedEffects, DEFAULT_COMPRESSOR, DEFAULT_PITCH, DEFAULT_STEREO_WIDENER,
+  readCompressorSettings, readPitch, readStereoWidenerSettings,
+} from './advancedEffects';
+import type { AdvancedEffectsSettings } from './advancedEffects';
+import { createParametricEq, DEFAULT_EQ, readEqHistory, readEqSettings } from './parametricEq';
+import type { EqHistory, EqSnapshot } from './parametricEq';
+
+export interface AudioSettings extends AdvancedEffectsSettings, EqSnapshot {
+  eqHistory: EqHistory;
+  pitchEnabled: boolean;
   width: number;
   spatializer: boolean;
-  spatialMix: number;
+  spatializerSettings: SpatializerSettings;
   crossfadeSeconds: number;
   outputDeviceId: string;
 }
 
 const STORAGE_KEY = 'audora.audio.v1';
-export const EQ_FREQUENCIES = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000];
+const TRACK_PLAYBACK_ERROR = 'Could not play this file. The audio may be damaged or use an unsupported format.';
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
-  eqEnabled: false, eq: EQ_FREQUENCIES.map(() => 0), compressor: false,
-  compressorThreshold: -24, compressorRatio: 3, width: 1,
-  spatializer: false, spatialMix: 0.2, crossfadeSeconds: 0, outputDeviceId: '',
+  eqEnabled: false, equalizer: DEFAULT_EQ, eqHistory: { past: [], future: [] },
+  compressor: false, compressorSettings: DEFAULT_COMPRESSOR,
+  stereoWidener: false, stereoWidenerSettings: DEFAULT_STEREO_WIDENER,
+  pitchEnabled: false, pitchSemitones: DEFAULT_PITCH, width: 1,
+  spatializer: false, spatializerSettings: DEFAULT_SPATIALIZER, crossfadeSeconds: 0, outputDeviceId: '',
 };
 
 export function readAudioSettings(): AudioSettings {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    const { spatialMix, eq, compressorThreshold, compressorRatio, ...saved } = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     return {
       ...DEFAULT_AUDIO_SETTINGS, ...saved,
-      eq: EQ_FREQUENCIES.map((_, index) => Math.max(-12, Math.min(12, Number(saved.eq?.[index]) || 0))),
+      equalizer: readEqSettings(saved.equalizer, eq),
+      eqHistory: readEqHistory(saved.eqHistory),
+      spatializerSettings: readSpatializerSettings(saved.spatializerSettings, spatialMix),
+      compressorSettings: readCompressorSettings(saved.compressorSettings, compressorThreshold, compressorRatio),
+      stereoWidenerSettings: readStereoWidenerSettings(saved.stereoWidenerSettings),
+      pitchSemitones: readPitch(saved.pitchSemitones),
     };
-  } catch { return { ...DEFAULT_AUDIO_SETTINGS, eq: [...DEFAULT_AUDIO_SETTINGS.eq] }; }
+  } catch { return { ...DEFAULT_AUDIO_SETTINGS }; }
 }
 
 export function writeAudioSettings(settings: AudioSettings) {
@@ -42,12 +56,13 @@ export class AudioEngine {
   private context: AudioContext | null = null;
   private decks: Deck[] = [];
   private active = 0;
-  private eq: BiquadFilterNode[] = [];
-  private compressor: DynamicsCompressorNode | null = null;
-  private widthNodes: GainNode[] = [];
-  private spatialNodes: GainNode[] = [];
+  private equalizer: ReturnType<typeof createParametricEq> | null = null;
+  private advancedEffects: ReturnType<typeof createAdvancedEffects> | null = null;
+  private stereoWidth: ReturnType<typeof createStereoWidth> | null = null;
+  private spatializer: ReturnType<typeof createSpatializer> | null = null;
   private volumeNode: GainNode | null = null;
   private outputElement: HTMLAudioElement | null = null;
+  private settingsOutputId: string | undefined;
   private settings = readAudioSettings();
   private nearEndSent = false;
   private transitionTimer: number | null = null;
@@ -83,68 +98,17 @@ export class AudioEngine {
       });
       media.addEventListener('ended', () => { if (this.context && media === this.current.media && !this.nearEndSent) this.onEnded(); });
       media.addEventListener('error', () => {
-        if (this.context && media === this.current.media) this.onError('This track could not be played. Check the file and try again.');
+        if (this.context && media === this.current.media) this.onError(TRACK_PLAYBACK_ERROR);
       });
       return { media, source, gain };
     });
 
-    // The shared effects graph processes both decks. A wet/dry bypass keeps
-    // disabled effects out of the signal path without recreating media sources.
-    this.eq = EQ_FREQUENCIES.map((frequency, index) => {
-      const filter = context.createBiquadFilter();
-      filter.type = index === 0 ? 'lowshelf' : index === EQ_FREQUENCIES.length - 1 ? 'highshelf' : 'peaking';
-      filter.frequency.value = frequency;
-      filter.Q.value = 1;
-      return filter;
-    });
-    let tail: AudioNode = mix;
-    for (const filter of this.eq) { tail.connect(filter); tail = filter; }
-    this.compressor = context.createDynamicsCompressor();
-    this.compressor.attack.value = 0.01;
-    this.compressor.release.value = 0.25;
-    const compBypass = context.createGain();
-    const compWet = context.createGain();
-    tail.connect(compBypass);
-    tail.connect(this.compressor).connect(compWet);
-    const widthInput = context.createGain();
-    // Convert mono to dual mono before splitting; otherwise the right channel
-    // would be silent for single-channel recordings.
-    widthInput.channelCount = 2;
-    widthInput.channelCountMode = 'explicit';
-    widthInput.channelInterpretation = 'speakers';
-    compBypass.connect(widthInput);
-    compWet.connect(widthInput);
-    this.widthNodes = [compBypass, compWet];
-
-    const splitter = context.createChannelSplitter(2);
-    const merger = context.createChannelMerger(2);
-    const leftOwn = context.createGain(); const leftCross = context.createGain();
-    const rightOwn = context.createGain(); const rightCross = context.createGain();
-    widthInput.connect(splitter);
-    splitter.connect(leftOwn, 0); splitter.connect(rightCross, 0);
-    splitter.connect(rightOwn, 1); splitter.connect(leftCross, 1);
-    leftOwn.connect(merger, 0, 0); leftCross.connect(merger, 0, 0);
-    rightOwn.connect(merger, 0, 1); rightCross.connect(merger, 0, 1);
-    this.widthNodes.push(leftOwn, leftCross, rightOwn, rightCross);
+    const equalized = context.createGain();
+    this.equalizer = createParametricEq(context, mix, equalized);
+    this.stereoWidth = createStereoWidth(context);
+    this.advancedEffects = createAdvancedEffects(context, equalized, this.stereoWidth.input);
     this.volumeNode = context.createGain();
-    const dry = context.createGain();
-    const wet = context.createGain();
-    const room = context.createConvolver();
-    const length = Math.floor(context.sampleRate * 0.35);
-    const impulse = context.createBuffer(2, length, context.sampleRate);
-    // A short, deterministic decaying response adds room depth without
-    // fetching an external impulse file or altering the source audio.
-    for (let channel = 0; channel < 2; channel++) {
-      const data = impulse.getChannelData(channel);
-      for (let sample = 0; sample < length; sample++) {
-        const decay = Math.pow(1 - sample / length, 3);
-        data[sample] = (Math.sin(sample * 1.37 + channel) * Math.sin(sample * 0.61 + channel * 2)) * decay * 0.35;
-      }
-    }
-    room.buffer = impulse;
-    merger.connect(dry).connect(this.volumeNode);
-    merger.connect(room).connect(wet).connect(this.volumeNode);
-    this.spatialNodes = [dry, wet];
+    this.spatializer = createSpatializer(context, this.stereoWidth.output, this.volumeNode);
     if (typeof (context as AudioContext & { setSinkId?: unknown }).setSinkId === 'function') {
       this.volumeNode.connect(context.destination);
     } else if (typeof (HTMLMediaElement.prototype as HTMLMediaElement & { setSinkId?: unknown }).setSinkId === 'function') {
@@ -163,6 +127,12 @@ export class AudioEngine {
   get position() { return this.context ? this.current.media.currentTime : 0; }
   get duration() { return this.context ? this.current.media.duration || 0 : 0; }
   get playing() { return !!this.context && !this.current.media.paused; }
+  get sampleRate() { return this.context?.sampleRate ?? 48000; }
+
+  preparePitch() {
+    this.init();
+    return this.advancedEffects!.ready;
+  }
 
   load(url: string, crossfade = 0) {
     this.init();
@@ -207,7 +177,7 @@ export class AudioEngine {
     } catch {
       if (!this.context || generation !== this.playbackGeneration) return;
       this.onError(media.error
-        ? 'This track could not be played. Check the file and try again.'
+        ? TRACK_PLAYBACK_ERROR
         : 'Audio playback was blocked. Press Play to try again.');
     }
   }
@@ -237,20 +207,20 @@ export class AudioEngine {
   applySettings() {
     if (!this.context) return;
     this.settings = readAudioSettings();
-    this.eq.forEach((node, index) => { node.gain.value = this.settings.eqEnabled ? this.settings.eq[index] : 0; });
-    this.widthNodes[0].gain.value = this.settings.compressor ? 0 : 1;
-    this.widthNodes[1].gain.value = this.settings.compressor ? 1 : 0;
-    const width = Math.max(0, Math.min(2, this.settings.width));
-    this.widthNodes[2].gain.value = (1 + width) / 2;
-    this.widthNodes[3].gain.value = (1 - width) / 2;
-    this.widthNodes[4].gain.value = (1 + width) / 2;
-    this.widthNodes[5].gain.value = (1 - width) / 2;
-    this.compressor!.threshold.value = Math.max(-60, Math.min(0, this.settings.compressorThreshold));
-    this.compressor!.ratio.value = Math.max(1, Math.min(12, this.settings.compressorRatio));
-    const mix = this.settings.spatializer ? Math.max(0, Math.min(0.5, this.settings.spatialMix)) : 0;
-    this.spatialNodes[0].gain.value = 1 - mix;
-    this.spatialNodes[1].gain.value = mix;
-    void this.setOutput(this.settings.outputDeviceId);
+    this.equalizer!(this.settings.eqEnabled, this.settings.equalizer);
+    this.advancedEffects!.update({
+      compressor: this.settings.compressor,
+      compressorSettings: this.settings.compressorSettings,
+      stereoWidener: this.settings.stereoWidener,
+      stereoWidenerSettings: this.settings.stereoWidenerSettings,
+      pitchSemitones: this.settings.pitchEnabled ? this.settings.pitchSemitones : 0,
+    });
+    this.stereoWidth!.setWidth(Math.max(0, Math.min(2, this.settings.width)));
+    this.spatializer!(this.settings.spatializer, this.settings.spatializerSettings);
+    if (this.settingsOutputId !== this.settings.outputDeviceId) {
+      this.settingsOutputId = this.settings.outputDeviceId;
+      void this.setOutput(this.settingsOutputId);
+    }
   }
 
   async setOutput(deviceId: string): Promise<boolean> {
@@ -279,11 +249,12 @@ export class AudioEngine {
     void this.context?.close();
     this.context = null;
     this.decks = [];
-    this.eq = [];
-    this.compressor = null;
-    this.widthNodes = [];
-    this.spatialNodes = [];
+    this.equalizer = null;
+    this.advancedEffects = null;
+    this.stereoWidth = null;
+    this.spatializer = null;
     this.volumeNode = null;
+    this.settingsOutputId = undefined;
     this.active = 0;
     this.transitionTimer = null;
   }

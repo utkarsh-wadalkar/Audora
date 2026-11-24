@@ -12,8 +12,6 @@ import platform as system_platform
 from typing import Mapping, Optional
 
 
-_WINDOWS_DOWNLOADS_DIR = r"D:\apple-music-dl\downloads"
-_WINDOWS_WRAPPER_DATA_DIR = Path(r"D:\apple-music-dl\wrapper\rootfs\data")
 _DOCKER_DESKTOP_URL = "https://www.docker.com/products/docker-desktop/"
 _DOCKER_ENGINE_URL = "https://docs.docker.com/engine/install/"
 _SUPPORTED_SYSTEMS = frozenset({"Windows", "Linux"})
@@ -48,11 +46,11 @@ def _linux_data_dir(environ: Mapping[str, str]) -> Path:
     return Path.home() / ".local" / "share" / "Audora" / "backend"
 
 
-def _linux_downloads_dir(environ: Mapping[str, str]) -> str:
+def _default_downloads_dir(environ: Mapping[str, str]) -> str:
     configured = environ.get("AUDORA_DOWNLOADS_DIR")
     if configured:
         return configured
-    home = environ.get("HOME")
+    home = environ.get("USERPROFILE") or environ.get("HOME")
     return str(Path(home) / "Music" / "Audora") if home else str(Path.home() / "Music" / "Audora")
 
 
@@ -66,20 +64,20 @@ def create_runtime_platform(
 ) -> RuntimePlatform:
     """Return the complete host policy without reading global process state.
 
-    Windows uses the exact legacy writable directory and default download path.
-    Linux must never write beneath the packaged resource directory, so it uses
-    an Electron-provided directory or an XDG-compatible user-data fallback.
+    Packaged apps receive per-user paths from Electron. Source runs use the
+    platform's local data directory and default to the user's Music folder.
     """
     if system not in _SUPPORTED_SYSTEMS:
         raise RuntimeError(f"Audora desktop packages support Windows and Linux only, not {system}")
 
     if system == "Windows":
+        data_dir = Path(environ["AUDORA_DATA_DIR"]) if environ.get("AUDORA_DATA_DIR") else legacy_data_dir
         return RuntimePlatform(
             system=system,
             system_version=system_version,
-            data_dir=legacy_data_dir,
-            default_downloads_dir=_WINDOWS_DOWNLOADS_DIR,
-            default_wrapper_data_dir=_WINDOWS_WRAPPER_DATA_DIR,
+            data_dir=data_dir,
+            default_downloads_dir=_default_downloads_dir(environ),
+            default_wrapper_data_dir=data_dir / "wrapper" / "rootfs" / "data",
             docker_install_label="Docker Desktop",
             docker_download_url=_DOCKER_DESKTOP_URL,
             backend_executable="backend.exe",
@@ -91,7 +89,7 @@ def create_runtime_platform(
         system=system,
         system_version=system_version,
         data_dir=_linux_data_dir(environ),
-        default_downloads_dir=_linux_downloads_dir(environ),
+        default_downloads_dir=_default_downloads_dir(environ),
         default_wrapper_data_dir=_linux_data_dir(environ) / "wrapper" / "rootfs" / "data",
         docker_install_label="Docker Engine",
         docker_download_url=_DOCKER_ENGINE_URL,
