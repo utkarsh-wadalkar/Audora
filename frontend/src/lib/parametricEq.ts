@@ -3,6 +3,7 @@ export const EQ_MAX_FREQUENCY = 20_000;
 export const EQ_GAIN_LIMIT = 24;
 export const EQ_PREAMP_LIMIT = 20;
 export const EQ_MAX_BANDS = 18;
+export const EQ_FIXED_FREQUENCIES = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000] as const;
 
 export const EQ_FILTER_TYPES = [
   { value: 'peaking', label: 'Bell', gain: true, q: true },
@@ -21,7 +22,6 @@ export type EqHistory = { past: EqSnapshot[]; future: EqSnapshot[] };
 
 export const DEFAULT_EQ: EqSettings = { preamp: 0, twoPass: false, bands: [] };
 export const EQ_HISTORY_LIMIT = 30;
-const legacyFrequencies = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000];
 
 function bounded(value: unknown, fallback: number, min: number, max: number) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
@@ -44,7 +44,7 @@ export function readEqSettings(saved?: Partial<EqSettings>, legacy?: unknown): E
     .filter((band, index, all) => all.findIndex(({ id }) => id === band.id) === index)
     .map(normalizeBand) : [];
   if (!Array.isArray(saved?.bands) && Array.isArray(legacy)) {
-    legacyFrequencies.forEach((frequency, index) => {
+    EQ_FIXED_FREQUENCIES.forEach((frequency, index) => {
       const gain = bounded(Number(legacy[index]), 0, -12, 12);
       if (gain) bands.push({
         id: `legacy-${index}`, frequency, gain, q: 1,

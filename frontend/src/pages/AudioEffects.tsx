@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { audioEngine, DEFAULT_AUDIO_SETTINGS, readAudioSettings, writeAudioSettings } from '../lib/audioEngine';
 import type { AudioSettings } from '../lib/audioEngine';
@@ -6,6 +7,7 @@ import { COMPRESSOR_CONTROLS, PITCH_CONTROL, STEREO_WIDENER_CONTROLS } from '../
 import { SPATIALIZER_CONTROLS } from '../lib/spatializer';
 import { EQ_HISTORY_LIMIT } from '../lib/parametricEq';
 import EqualizerEditor from '../components/EqualizerEditor';
+import type { EqualizerEditorProps } from '../components/EqualizerEditor';
 
 const tabs = ['Equalizer', 'Compressor', 'Spatializer', 'Stereo Widener', 'Advanced'] as const;
 type EffectsTab = (typeof tabs)[number];
@@ -58,7 +60,10 @@ function HorizontalSlider({ control, value, disabled, onChange }: {
   );
 }
 
-export default function AudioEffects() {
+export default function AudioEffects({ openSystemAudioOutput, equalizerEditor: EqEditor = EqualizerEditor }: {
+  openSystemAudioOutput?: () => void;
+  equalizerEditor?: ComponentType<EqualizerEditorProps>;
+} = {}) {
   const [audio, setAudio] = useState<AudioSettings>(readAudioSettings);
   const currentAudio = useRef(audio);
   const lastEqGesture = useRef<object>();
@@ -68,10 +73,11 @@ export default function AudioEffects() {
   const [pitchMessage, setPitchMessage] = useState('');
   const outputRequest = useRef(0);
   const pitchRequest = useRef(0);
+  const compact = Boolean(openSystemAudioOutput);
 
   useEffect(() => {
     const request = ++outputRequest.current;
-    if (audio.outputDeviceId) void audioEngine.setOutput(audio.outputDeviceId).then((ok) => {
+    if (!openSystemAudioOutput && audio.outputDeviceId) void audioEngine.setOutput(audio.outputDeviceId).then((ok) => {
       if (!ok && request === outputRequest.current) {
         updateAudio({ outputDeviceId: '' });
         setAudioMessage('The saved speaker is unavailable. Using the system default.');
@@ -86,6 +92,7 @@ export default function AudioEffects() {
   }, []);
 
   useEffect(() => {
+    if (openSystemAudioOutput) return;
     const devices = navigator.mediaDevices;
     if (!devices?.enumerateDevices) return;
     const refresh = () => void devices.enumerateDevices()
@@ -176,11 +183,11 @@ export default function AudioEffects() {
   }
 
   return (
-    <div className="animate-rise-in space-y-4 pt-2">
+    <div className={compact ? 'animate-rise-in space-y-3' : 'animate-rise-in space-y-4 pt-2'}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Audio effects</h1>
-          <p className="mt-1 text-xs text-gray-500">Changes apply during playback and save on this device.</p>
+          <h1 className={compact ? 'text-lg font-semibold text-gray-100' : 'text-2xl font-semibold tracking-tight text-gray-100'}>Audio effects</h1>
+          {!compact && <p className="mt-1 text-xs text-gray-500">Changes apply during playback and save on this device.</p>}
         </div>
         <button type="button" onClick={() => {
           outputRequest.current++;
@@ -192,7 +199,7 @@ export default function AudioEffects() {
           <RotateCcw size={13} /> Reset all effects
         </button>
       </div>
-      <div role="tablist" aria-label="Audio effect" className="flex flex-wrap gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+      <div role="tablist" aria-label="Audio effect" className={`flex gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1 ${compact ? 'overflow-x-auto' : 'flex-wrap'}`}>
         {tabs.map((name, index) => (
           <button type="button" role="tab" key={name} id={`effect-tab-${index}`} aria-controls="effect-panel"
             aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => setTab(name)}
@@ -204,14 +211,14 @@ export default function AudioEffects() {
               setTab(tabs[next]);
               document.getElementById(`effect-tab-${next}`)?.focus();
             }}
-            className="rounded-lg px-3 py-2 text-sm text-gray-400 hover:text-white aria-selected:bg-audora-400/15 aria-selected:text-audora-200">
+            className={`rounded-lg text-gray-400 hover:text-white aria-selected:bg-audora-400/15 aria-selected:text-audora-200 ${compact ? 'min-h-[44px] shrink-0 px-2 text-xs' : 'px-3 py-2 text-sm'}`}>
             {name}
           </button>
         ))}
       </div>
 
       <div id="effect-panel" role="tabpanel" aria-labelledby={`effect-tab-${tabs.indexOf(tab)}`}>
-        {tab === 'Equalizer' && <EqualizerEditor enabled={audio.eqEnabled} settings={audio.equalizer} sampleRate={audioEngine.sampleRate}
+        {tab === 'Equalizer' && <EqEditor enabled={audio.eqEnabled} settings={audio.equalizer} sampleRate={audioEngine.sampleRate}
           onEnabled={(eqEnabled) => updateAudio({ eqEnabled })}
           onChange={(equalizer, enable, gesture) => updateAudio({ equalizer, eqEnabled: enable ?? currentAudio.current.eqEnabled }, gesture)}
           canUndo={audio.eqHistory.past.length > 0} canRedo={audio.eqHistory.future.length > 0}
@@ -259,6 +266,11 @@ export default function AudioEffects() {
               value={Math.round(audio.width * 100)} onChange={(value) => updateAudio({ width: value / 100 })} />
             <HorizontalSlider control={{ label: 'Crossfade duration', min: 0, max: 12, step: 1, unit: 'seconds' }}
               value={audio.crossfadeSeconds} onChange={(crossfadeSeconds) => updateAudio({ crossfadeSeconds })} />
+            {openSystemAudioOutput ? (
+              <button type="button" onClick={openSystemAudioOutput} className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-200">
+                Audio output
+              </button>
+            ) : <>
             <div>
               <label htmlFor="audio-output" className="mb-2 block text-sm text-gray-200">Audio output</label>
               <select id="audio-output" value={audio.outputDeviceId} onChange={(event) => void changeOutput(event.target.value)}
@@ -272,6 +284,7 @@ export default function AudioEffects() {
               <button type="button" onClick={() => void chooseOutput()} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-200 hover:bg-white/10">Choose a speaker…</button>}
             {!audioEngine.outputSelectionSupported && <p className="text-xs text-gray-500">This version of the audio engine cannot select an output device. Use your system audio settings.</p>}
             {audioMessage && <p role="status" className="text-xs text-gray-400">{audioMessage}</p>}
+            </>}
           </div>
         </section>}
       </div>
