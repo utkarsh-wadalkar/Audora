@@ -79,6 +79,7 @@ public final class PlaybackService extends Service {
     private static final String NEXT = "com.audora.mobile.action.NEXT";
     private static final String PREVIOUS = "com.audora.mobile.action.PREVIOUS";
     private static final String STOP = "com.audora.mobile.action.STOP";
+    private static final String CONTROL_PERMISSION = "com.audora.mobile.permission.PLAYBACK_CONTROL";
     private static final String[] BUTTONS = {PLAY, PAUSE, NEXT, PREVIOUS, STOP};
     private static final long ALWAYS = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
         | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SEEK_TO | PlaybackState.ACTION_STOP;
@@ -123,9 +124,9 @@ public final class PlaybackService extends Service {
         });
         IntentFilter filter = new IntentFilter();
         for (String button : BUTTONS) filter.addAction(button);
-        // Only this app's notification buttons send these, so the receiver stays unexported.
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(buttons, filter, RECEIVER_NOT_EXPORTED);
-        else registerReceiver(buttons, filter);
+        // Before Android 13 a dynamic receiver is exported, so the signature permission keeps other apps out.
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(buttons, filter, CONTROL_PERMISSION, null, RECEIVER_NOT_EXPORTED);
+        else registerReceiver(buttons, filter, CONTROL_PERMISSION, null);
     }
 
     @Override public IBinder onBind(Intent intent) {

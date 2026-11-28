@@ -4,7 +4,10 @@
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <permission
+        android:name="com.audora.mobile.permission.PLAYBACK_CONTROL"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.audora.mobile.permission.PLAYBACK_CONTROL" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
         android:label="@string/app_name"
@@ -13,7 +16,7 @@
         android:allowBackup="false">
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|fontWeightAdjustment|uiMode|locale|layoutDirection|keyboard|keyboardHidden|navigation|touchscreen|colorMode|mcc|mnc"
             android:launchMode="singleTask"
             android:exported="true">
             <intent-filter>

@@ -6,6 +6,7 @@ import { audioEngine, readAudioSettings } from '../lib/audioEngine';
 import FixedEqualizer from './FixedEqualizer';
 import MusicLibrary, { button } from './MusicLibrary';
 import type { LibrarySnapshot, Track } from './catalog';
+import { pruneQueue } from './queue';
 import '../index.css';
 
 declare global {
@@ -90,15 +91,23 @@ function App() {
         .then((result) => {
           if (request.signal.aborted) return;
           setLibrary(result);
-          const playing = queue.current[index.current];
-          if (playing && !result.scanning && !result.error && !result.tracks.some(({ id }) => id === playing.id)) {
+          if (result.scanning || result.error || index.current < 0) return;
+          const wasPlaying = audioEngine.playing;
+          const pruned = pruneQueue(queue.current, index.current, result.tracks);
+          queue.current = pruned.queue;
+          if (pruned.index >= 0) {
+            index.current = pruned.index;
+            setTrack(pruned.queue[pruned.index]);
+          } else if (wasPlaying && pruned.following >= 0) {
+            playAt(pruned.following);
+          } else {
             audioEngine.pause();
             queue.current = [];
             index.current = -1;
             setTrack(undefined);
             setPreview(undefined);
-            updateControls();
           }
+          updateControls();
         })
         .catch(() => {
           if (!request.signal.aborted) setLibrary((current) => ({

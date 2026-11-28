@@ -20,6 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class LocalMedia {
+    static final int ARTWORK_LIMIT = 8 * 1024 * 1024;
     private static final Pattern RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");
     private static final String HOST = Uri.parse(MainActivity.ORIGIN).getHost();
     private final Context context;
@@ -74,6 +75,11 @@ final class LocalMedia {
 
     /** Reads the cover picture embedded in an audio file, or null when it has none. */
     static byte[] embeddedPicture(Context context, Uri uri) {
+        try (InputStream header = context.getContentResolver().openInputStream(uri)) {
+            if (header == null || MetadataSize.largestBlock(header) > ARTWORK_LIMIT) return null;
+        } catch (IOException | RuntimeException unreadable) {
+            return null;
+        }
         MediaMetadataRetriever metadata = new MediaMetadataRetriever();
         try {
             metadata.setDataSource(context, uri);
@@ -90,7 +96,7 @@ final class LocalMedia {
     private WebResourceResponse cover(AudioLibrary.Track track) {
         byte[] bytes = embeddedPicture(context, track.uri);
         try {
-            if (bytes != null && bytes.length <= 8 * 1024 * 1024) {
+            if (bytes != null && bytes.length <= ARTWORK_LIMIT) {
                 BitmapFactory.Options bounds = new BitmapFactory.Options();
                 bounds.inJustDecodeBounds = true;
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);

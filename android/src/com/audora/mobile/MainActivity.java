@@ -1,6 +1,5 @@
 package com.audora.mobile;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -9,7 +8,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.media.MediaRouter2;
 import android.net.Uri;
@@ -40,7 +39,6 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final int OPEN_FOLDER = 1;
-    private static final int NOTIFICATIONS = 2;
     private static final int READ = Intent.FLAG_GRANT_READ_URI_PERMISSION;
 
     private final ExecutorService scanner = Executors.newSingleThreadExecutor();
@@ -93,6 +91,7 @@ public final class MainActivity extends Activity {
         web.getSettings().setAllowContentAccess(false);
         web.getSettings().setMediaPlaybackRequiresUserGesture(false);
         web.setBackgroundColor(0xff100f15);
+        matchFontScale(getResources().getConfiguration());
         FrameLayout content = new FrameLayout(this);
         content.setBackgroundColor(0xff100f15);
         content.addView(web, new FrameLayout.LayoutParams(-1, -1));
@@ -125,7 +124,6 @@ public final class MainActivity extends Activity {
         tree = readFolder();
         if (tree != null) {
             scan(tree);
-            inviteNotifications();
         } else {
             publish("");
         }
@@ -183,18 +181,6 @@ public final class MainActivity extends Activity {
         }
     }
 
-    /**
-     * Asks for the playback notification while the listener sets up their music folder, so the
-     * notification and lock screen controls are ready before the first track plays.
-     */
-    private void inviteNotifications() {
-        if (Build.VERSION.SDK_INT < 33) return;
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
-        // Android stops showing the prompt once it is declined, so asking again would do nothing.
-        if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) return;
-        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATIONS);
-    }
-
     private void dispatch(String command) {
         if (web == null) return;
         web.evaluateJavascript("window.dispatchEvent(new CustomEvent('audora-transport',{detail:"
@@ -226,7 +212,6 @@ public final class MainActivity extends Activity {
         try {
             getContentResolver().takePersistableUriPermission(selected, READ);
             scan(selected);
-            inviteNotifications();
         } catch (SecurityException error) {
             publish("Android couldn’t save access to that folder. Choose a local music folder and try again.");
         }
@@ -288,6 +273,16 @@ public final class MainActivity extends Activity {
 
     private void emit(String signal) {
         if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event(" + JSONObject.quote(signal) + "))", null);
+    }
+
+    /** The WebView owns playback, so configuration changes are handled in place instead of recreating it. */
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        matchFontScale(configuration);
+    }
+
+    private void matchFontScale(Configuration configuration) {
+        if (web != null) web.getSettings().setTextZoom(Math.round(configuration.fontScale * 100));
     }
 
     @Override protected void onDestroy() {
