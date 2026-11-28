@@ -42,7 +42,7 @@ function NumberField({ label, value, min, max, step, disabled, onChange }: {
   );
 }
 
-type Props = {
+export type EqualizerEditorProps = {
   enabled: boolean;
   settings: EqSettings;
   sampleRate: number;
@@ -54,7 +54,7 @@ type Props = {
   onRedo: () => void;
 };
 
-export default function EqualizerEditor({ enabled, settings, sampleRate, onEnabled, onChange, canUndo, canRedo, onUndo, onRedo }: Props) {
+export default function EqualizerEditor({ enabled, settings, sampleRate, onEnabled, onChange, canUndo, canRedo, onUndo, onRedo }: EqualizerEditorProps) {
   const [selectedId, setSelectedId] = useState<string>();
   const [size, setSize] = useState({ width: 720, height: 380 });
   const chart = useRef<SVGSVGElement>(null);

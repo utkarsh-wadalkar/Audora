@@ -564,8 +564,14 @@ test('audio engine plays local PCM and overlaps tracks during crossfade', async 
     const right = graph.context.createAnalyser();
     graph.volumeNode.connect(tap);
     tap.connect(left, 0); tap.connect(right, 1);
+    const waitForPlayback = async () => {
+      const deadline = performance.now() + 5000;
+      while (engine.position < 0.1 && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    };
     await engine.play();
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await waitForPlayback();
     const firstPosition = engine.position;
     const rms = (node: AnalyserNode) => {
       const samples = new Float32Array(node.fftSize);
@@ -576,7 +582,7 @@ test('audio engine plays local PCM and overlaps tracks during crossfade', async 
     const rightLevel = rms(right);
     engine.load(url, 0.5);
     await engine.play();
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitForPlayback();
     const secondPosition = engine.position;
     engine.pause();
     const paused = !engine.playing;

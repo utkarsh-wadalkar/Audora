@@ -93,7 +93,10 @@ export class AudioEngine {
         if (!this.context || media !== this.current.media || this.nearEndSent || !Number.isFinite(media.duration)) return;
         const seconds = this.settings.crossfadeSeconds;
         if (seconds > 0 && media.duration - media.currentTime <= seconds && media.duration - media.currentTime > 0) {
-          this.nearEndSent = this.onNearEnd();
+          const generation = this.playbackGeneration;
+          const handled = this.onNearEnd();
+          // The callback may load the next deck immediately.
+          if (generation === this.playbackGeneration) this.nearEndSent = handled;
         }
       });
       media.addEventListener('ended', () => { if (this.context && media === this.current.media && !this.nearEndSent) this.onEnded(); });
